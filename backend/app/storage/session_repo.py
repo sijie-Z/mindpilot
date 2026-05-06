@@ -1,0 +1,200 @@
+"""
+Session and message persistence for multi-turn conversations.
+"""
+import json
+from datetime import datetime
+from typing import Any
+
+from sqlalchemy import text
+
+from app.core.logger import get_logger
+from app.storage.database import get_db_session
+
+logger = get_logger(__name__)
+
+
+class SessionRepository:
+    """CRUD operations for chat sessions and messages."""
+
+    async def create_session(
+        self, session_id: str, user_id: str = "anonymous", title: str = ""
+    ) -> str:
+        """Create a new chat session. Returns session_id."""
+        try:
+            async with get_db_session() as db:
+                await db.execute(
+                    text(
+                        "INSERT INTO sessions (id, user_id, title, is_active) "
+                        "VALUES (:id, :user_id, :title, :is_active)"
+                    ),
+                    {
+                        "id": session_id,
+                        "user_id": user_id,
+                        "title": title or "新对话",
+                        "is_active": True,
+                    },
+                )
+            logger.debug("Session created", session_id=session_id, user_id=user_id)
+            return session_id
+        except Exception as e:
+            logger.error("Failed to create session", error=str(e))
+            return session_id
+
+    async def add_message(
+        self,
+        session_id: str,
+        role: str,
+        content: str,
+        metadata: dict[str, Any] | None = None,
+    ) -> None:
+        """Add a message to a session."""
+        try:
+            async with get_db_session() as db:
+                import uuid
+                msg_id = str(uuid.uuid4())
+                await db.execute(
+                    text(
+                        "INSERT INTO messages (id, session_id, role, content, metadata) "
+                        "VALUES (:id, :session_id, :role, :content, :metadata)"
+                    ),
+                    {
+                        "id": msg_id,
+                        "session_id": session_id,
+                        "role": role,
+                        "content": content,
+                        "metadata": json.dumps(metadata or {}, ensure_ascii=False),
+                    },
+                )
+                # Update session timestamp
+                await db.execute(
+                    text("UPDATE sessions SET updated_at = :now WHERE id = :sid"),
+                    {"now": datetime.now(), "sid": session_id},
+                )
+        except Exception as e:
+            logger.error("Failed to add message", error=str(e))
+
+    async def get_session(self, session_id: str) -> dict[str, Any] | None:
+        """Get session with messages."""
+        try:
+            async with get_db_session() as db:
+                result = await db.execute(
+                    text(
+                        "SELECT id, user_id, title, is_active, created_at, updated_at "
+                        "FROM sessions WHERE id = :sid"
+                    ),
+                    {"sid": session_id},
+                )
+                session_row = result.fetchone()
+                if not session_row:
+                    return None
+
+                msgs_result = await db.execute(
+                    text(
+                        "SELECT role, content, metadata, created_at "
+                        "FROM messages WHERE session_id = :sid ORDER BY created_at ASC"
+                    ),
+                    {"sid": session_id},
+                )
+                messages = [
+                    {
+                        "role": row[0],
+                        "content": row[1],
+                        "metadata": row[2] if isinstance(row[2], dict) else json.loads(row[2] or "{}"),
+                        "created_at": str(row[3]),
+                    }
+                    for row in msgs_result.fetchall()
+                ]
+
+                return {
+                    "id": session_row[0],
+                    "user_id": session_row[1],
+                    "title": session_row[2],
+                    "is_active": session_row[3],
+                    "created_at": str(session_row[4]),
+                    "updated_at": str(session_row[5]),
+                    "messages": messages,
+                }
+        except Exception as e:
+            logger.error("Failed to get session", error=str(e))
+            return None
+
+    async def list_sessions(
+        self, user_id: str = "anonymous", limit: int = 20
+    ) -> list[dict[str, Any]]:
+        """List recent sessions for a user."""
+        try:
+            async with get_db_session() as db:
+                result = await db.execute(
+                    text(
+                        "SELECT id, title, created_at, updated_at "
+                        "FROM sessions WHERE user_id = :uid AND is_active = TRUE "
+                        "ORDER BY updated_at DESC LIMIT :lim"
+                    ),
+                    {"uid": user_id, "lim": limit},
+                )
+                return [
+                    {
+                        "id": row[0],
+                        "title": row[1],
+                        "created_at": str(row[2]),
+                        "updated_at": str(row[3]),
+                    }
+                    for row in result.fetchall()
+                ]
+        except Exception as e:
+            logger.error("Failed to list sessions", error=str(e))
+            return []
+
+    async def delete_session(self, session_id: str) -> bool:
+        """Soft-delete a session."""
+        try:
+            async with get_db_session() as db:
+                await db.execute(
+                    text("UPDATE sessions SET is_active = FALSE WHERE id = :sid"),
+                    {"sid": session_id},
+                )
+            return True
+        except Exception as e:
+            logger.error("Failed to delete session", error=str(e))
+            return False
+
+    async def save_evaluation(
+        self,
+        session_id: str,
+        query: str,
+        answer: str,
+        contexts: list[str],
+        metrics: dict[str, Any],
+        latency_ms: int = 0,
+    ) -> None:
+        """Save RAGAS evaluation results."""
+        try:
+            async with get_db_session() as db:
+                import uuid
+                eval_id = str(uuid.uuid4())
+                await db.execute(
+                    text(
+                        "INSERT INTO evaluations (id, session_id, query, answer, contexts, "
+                        "metrics, faithfulness, answer_relevance, context_precision, latency_ms) "
+                        "VALUES (:id, :sid, :query, :answer, :contexts, :metrics, "
+                        ":faith, :rel, :prec, :lat)"
+                    ),
+                    {
+                        "id": eval_id,
+                        "sid": session_id,
+                        "query": query,
+                        "answer": answer,
+                        "contexts": json.dumps(contexts, ensure_ascii=False),
+                        "metrics": json.dumps(metrics, ensure_ascii=False),
+                        "faith": metrics.get("faithfulness"),
+                        "rel": metrics.get("answer_relevance"),
+                        "prec": metrics.get("context_precision"),
+                        "lat": latency_ms,
+                    },
+                )
+        except Exception as e:
+            logger.error("Failed to save evaluation", error=str(e))
+
+
+# Global instance
+session_repo = SessionRepository()

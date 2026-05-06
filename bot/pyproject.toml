@@ -1,0 +1,19 @@
+[project]
+name = "mindpilot-bot"
+version = "1.0.0"
+description = "MindPilot QQ Robot based on NoneBot2"
+requires-python = ">=3.10"
+dependencies = [
+    "nonebot2>=2.0.0",
+    "nonebot-adapter-onebot>=2.0.0",
+    "httpx>=0.25.0",
+    "zhipuai>=2.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "nb-cli>=2.0.0",
+]
+
+[plugin]
+metadata = { entry = "nonebot.plugin.metadata" }

@@ -1,0 +1,5 @@
+MindPilot is a multi-modal intelligent knowledge retrieval system.
+It supports RAG with hybrid search combining vector and BM25.
+The system uses LangGraph for multi-agent orchestration.
+Key features: document parsing, chunking, embedding, retrieval, and answer generation.
+This is a test document for the MindPilot RAG pipeline.
