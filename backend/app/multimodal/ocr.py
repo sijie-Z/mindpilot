@@ -68,6 +68,8 @@ class OCRProcessor:
 
     async def extract_tables_from_image(self, image_path: str) -> list[list[list[str]]]:
         """Extract tables from image."""
-        # Placeholder — full table extraction would use a dedicated model
         text = await self.extract_text_from_image(image_path)
         return [[[text]]] if text else []
+
+
+ocr_processor = OCRProcessor()

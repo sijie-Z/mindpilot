@@ -86,3 +86,6 @@ class VisionProcessor:
             ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
             ".gif": "image/gif", ".webp": "image/webp", ".bmp": "image/bmp",
         }.get(ext, "image/png")
+
+
+vision_processor = VisionProcessor()
