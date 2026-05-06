@@ -4,7 +4,7 @@
 .env.*.local
 
 # Python
-__pycache__/
+**/__pycache__/
 *.py[cod]
 *.egg-info/
 dist/
@@ -27,18 +27,18 @@ dist/
 Thumbs.db
 
 # Coverage
-htmlcov/
+**/htmlcov/
 .coverage
 coverage.xml
-.pytest_cache/
+**/.pytest_cache/
 
 # Logs
 *.log
 
 # Data
-data/uploads/*
+**/data/uploads/*
 !data/uploads/.gitkeep
-data/faiss/
+**/data/faiss/
 
 # Docker
-mysql_data/
+**/mysql_data/
