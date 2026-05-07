@@ -54,7 +54,7 @@ async def login(data: UserLogin):
     """Login with username and password."""
     async with get_db_session() as db:
         result = await db.execute(
-            text("SELECT id, username, email, role, api_key FROM users WHERE username=:username"),
+            text("SELECT id, username, email, role, password_hash FROM users WHERE username=:username"),
             {"username": data.username}
         )
         user = result.fetchone()
@@ -62,10 +62,9 @@ async def login(data: UserLogin):
         if not user:
             raise HTTPException(status_code=401, detail="Invalid username or password")
 
-        user_id, username, _email, role, api_key = user[0], user[1], user[2], user[3], user[4]
+        user_id, username, _email, role, password_hash = user[0], user[1], user[2], user[3], user[4]
 
-        # Check password - stored hash is in api_key field
-        if not verify_password(data.password, api_key or ""):
+        if not verify_password(data.password, password_hash or ""):
             raise HTTPException(status_code=401, detail="Invalid username or password")
 
         # Create token
@@ -100,7 +99,7 @@ async def register(data: UserRegister):
         password_hash = hash_password(data.password)
 
         await db.execute(
-            text("INSERT INTO users (id, username, email, role, api_key) "
+            text("INSERT INTO users (id, username, email, role, password_hash) "
                  "VALUES (:id, :username, :email, 'user', :hash)"),
             {"id": user_id, "username": data.username, "email": data.email or None, "hash": password_hash}
         )

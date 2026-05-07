@@ -25,11 +25,17 @@ export interface ChatHandlers {
 
 export const chatApi = {
   async streamChat(message: ChatMessage, handlers: ChatHandlers): Promise<void> {
+    const token = localStorage.getItem('token')
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+    }
+    if (token) {
+      headers['Authorization'] = `Bearer ${token}`
+    }
+
     const response = await fetch('/api/chat/stream', {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
+      headers,
       body: JSON.stringify(message),
     })
 
