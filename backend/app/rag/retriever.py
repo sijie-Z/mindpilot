@@ -118,8 +118,10 @@ class HybridRetriever:
             async with get_db_session() as db:
                 if knowledge_id:
                     result = await db.execute(
-                        text("SELECT id FROM chunks WHERE MATCH(content) "
-                             "AGAINST(:query IN NATURAL LANGUAGE MODE) AND knowledge_id=:kid LIMIT :lim"),
+                        text("SELECT c.id FROM chunks c "
+                             "JOIN documents d ON c.doc_id = d.id "
+                             "WHERE MATCH(c.content) AGAINST(:query IN NATURAL LANGUAGE MODE) "
+                             "AND d.knowledge_id = :kid LIMIT :lim"),
                         {"query": query, "kid": knowledge_id, "lim": limit}
                     )
                 else:

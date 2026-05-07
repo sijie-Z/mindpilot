@@ -1,6 +1,19 @@
 # MindPilot — 多模态智能知识检索与多端协作平台
 
+<p align="center">
+  <img src="https://img.shields.io/badge/Python-3.10+-3776AB?style=flat-square&logo=python&logoColor=white" alt="Python">
+  <img src="https://img.shields.io/badge/Vue-3.4-4FC08D?style=flat-square&logo=vue.js&logoColor=white" alt="Vue">
+  <img src="https://img.shields.io/badge/FastAPI-0.104+-009688?style=flat-square&logo=fastapi&logoColor=white" alt="FastAPI">
+  <img src="https://img.shields.io/badge/LangGraph-Agent-FF6B6B?style=flat-square&logo=langchain&logoColor=white" alt="LangGraph">
+  <img src="https://img.shields.io/badge/Milvus-2.3-00A3E0?style=flat-square&logo=milvus&logoColor=white" alt="Milvus">
+  <img src="https://img.shields.io/badge/Docker-Compose-2496ED?style=flat-square&logo=docker&logoColor=white" alt="Docker">
+  <img src="https://img.shields.io/badge/CI-Pass-brightgreen?style=flat-square" alt="CI">
+  <img src="https://img.shields.io/badge/License-MIT-yellow?style=flat-square" alt="License">
+</p>
+
 **MindPilot** 是一个企业级 RAG（检索增强生成）平台，支持多模态文档理解、混合检索、多 Agent 协作编排，以及网页 / QQ / 飞书多端接入。
+
+> **核心亮点**: LangGraph 多 Agent 编排 | Self-RAG 自检 | 混合检索 (Vector + BM25 + RRF) | RAGAS 质量评估 | SSE 流式对话 | 多模态理解
 
 ---
 
