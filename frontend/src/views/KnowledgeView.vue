@@ -136,7 +136,7 @@ async function loadKnowledgeBases() {
   loading.value = true
   try {
     const res = await api.get('/knowledge/')
-    knowledgeBases.value = Array.isArray(res.data) ? res.data : (res.data?.items || [])
+    knowledgeBases.value = Array.isArray(res.data) ? res.data : (res.data?.knowledges || res.data?.items || [])
   } catch { /* fallback */ }
   finally { loading.value = false }
 }

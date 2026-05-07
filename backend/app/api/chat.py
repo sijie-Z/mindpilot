@@ -77,6 +77,10 @@ async def stream_chat(request: ChatRequest) -> str:
     }
 
     try:
+        # ── Persist session ──
+        await ctx.session_repo.create_session(session_id, request.user_id or "anonymous", request.query[:30])
+        await ctx.session_repo.add_message(session_id, "user", request.query)
+
         # ── Step 0: Image processing (if image provided) ──
         image_context = ""
         if request.image_base64 or request.image_url:
@@ -134,6 +138,15 @@ async def stream_chat(request: ChatRequest) -> str:
         if state["intent"] == "doc_qa" and state.get("reranked_docs"):
             state = await eval_node(state, llm=llm)
             yield f"data: {json.dumps({'type': 'evaluation', 'data': state['evaluation']})}\n\n"
+
+        # ── Persist assistant message ──
+        answer_text = state.get("answer", "")
+        sources = state.get("sources", [])
+        evaluation = state.get("evaluation", {})
+        await ctx.session_repo.add_message(
+            session_id, "assistant", answer_text,
+            metadata={"sources": sources, "evaluation": evaluation},
+        )
 
         yield f"data: {json.dumps({'type': 'done', 'latency_ms': state.get('latency_ms', 0)})}\n\n"
 

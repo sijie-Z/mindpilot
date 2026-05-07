@@ -303,7 +303,7 @@ watch(() => chatStore.messages.length, () => {
 async function loadKnowledgeBases() {
   try {
     const res = await api.get('/knowledge/')
-    knowledgeBases.value = Array.isArray(res.data) ? res.data : (res.data?.items || [])
+    knowledgeBases.value = Array.isArray(res.data) ? res.data : (res.data?.knowledges || res.data?.items || [])
     if (knowledgeBases.value.length > 0 && !selectedKnowledge.value) {
       selectedKnowledge.value = knowledgeBases.value[0]
     }
@@ -323,8 +323,11 @@ async function handleSend() {
   await chatStore.sendMessage(text, {
     knowledgeId: selectedKnowledge.value?.id,
     model: currentModel.value,
+    imageBase64: selectedImageBase64.value || undefined,
   })
 
+  selectedImageBase64.value = null
+  selectedImageName.value = ''
   scrollToBottom()
 }
 
@@ -332,12 +335,27 @@ function handleImageUpload() {
   imageInput.value?.click()
 }
 
+const selectedImageBase64 = ref<string | null>(null)
+const selectedImageName = ref<string>('')
+
 function onImageSelected(e: Event) {
   const files = (e.target as HTMLInputElement).files
   if (!files?.length) return
-  // For now, just notify — full VLM integration pending
   const file = files[0]
-  inputText.value = `[图片: ${file.name}] ${inputText.value}`
+
+  if (file.size > 10 * 1024 * 1024) {
+    alert('图片大小不能超过 10MB')
+    return
+  }
+
+  const reader = new FileReader()
+  reader.onload = () => {
+    const result = reader.result as string
+    selectedImageBase64.value = result.split(',')[1]
+    selectedImageName.value = file.name
+    inputText.value = `[图片: ${file.name}] ${inputText.value}`
+  }
+  reader.readAsDataURL(file)
 }
 
 function selectKnowledge(kb: any) {

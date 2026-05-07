@@ -5,6 +5,7 @@ export interface ChatMessage {
   session_id?: string
   knowledge_id?: string
   knowledge_base_ids?: string[]
+  image_base64?: string
 }
 
 export interface SSEData {

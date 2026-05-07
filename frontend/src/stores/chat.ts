@@ -181,7 +181,7 @@ export const useChatStore = defineStore('chat', () => {
 
   async function sendMessage(
     query: string,
-    options?: { knowledgeId?: string; model?: string }
+    options?: { knowledgeId?: string; model?: string; imageBase64?: string }
   ): Promise<void> {
     if (loading.value || !query.trim()) return
 
@@ -196,7 +196,7 @@ export const useChatStore = defineStore('chat', () => {
 
     try {
       await chatApi.streamChat(
-        { query, knowledge_id: options?.knowledgeId },
+        { query, knowledge_id: options?.knowledgeId, image_base64: options?.imageBase64 },
         {
           onMessage: (data: SSEData) => {
             switch (data.type) {
