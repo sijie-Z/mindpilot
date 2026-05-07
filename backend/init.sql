@@ -141,3 +141,7 @@ CREATE TABLE IF NOT EXISTS skill_logs (
     INDEX idx_skill_name (skill_name),
     INDEX idx_created_at (created_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Default retrieval config
+INSERT IGNORE INTO retrieval_configs (id, vector_weight, bm25_weight, top_k, rerank_enabled, self_rag_enabled)
+VALUES ('default-config', 0.7, 0.3, 10, TRUE, TRUE);

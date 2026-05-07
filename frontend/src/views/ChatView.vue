@@ -269,6 +269,8 @@ const knowledgeBases = ref<any[]>([])
 const selectedKnowledge = ref<any>(null)
 const currentModel = ref('glm-4-flash')
 const expandedSources = ref(new Set<string>())
+const selectedImageBase64 = ref<string | null>(null)
+const selectedImageName = ref<string>('')
 
 const models = [
   { id: 'glm-4-flash', label: 'GLM-4-Flash', desc: '快速响应，适合日常对话' },
@@ -334,9 +336,6 @@ async function handleSend() {
 function handleImageUpload() {
   imageInput.value?.click()
 }
-
-const selectedImageBase64 = ref<string | null>(null)
-const selectedImageName = ref<string>('')
 
 function onImageSelected(e: Event) {
   const files = (e.target as HTMLInputElement).files

@@ -153,3 +153,7 @@ CREATE TABLE IF NOT EXISTS skill_logs (
 INSERT INTO users (id, username, email, password_hash, role, api_key)
 VALUES ('admin-001', 'admin', 'admin@mindpilot.com', '240be518fabd2724ddb6f04eeb1da5967448d7e831c08c8fa822809f74c720a9', 'admin', 'mindpilot-api-key')
 ON DUPLICATE KEY UPDATE username = username;
+
+-- Default retrieval config
+INSERT IGNORE INTO retrieval_configs (id, vector_weight, bm25_weight, top_k, rerank_enabled, self_rag_enabled)
+VALUES ('default-config', 0.7, 0.3, 10, TRUE, TRUE);

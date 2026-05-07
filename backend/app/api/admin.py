@@ -101,20 +101,24 @@ async def create_user(
     """Create a new user (admin only)."""
     import uuid
 
+    from app.api.auth import hash_password
+
     user_id = str(uuid.uuid4())
     api_key = auth_handler.generate_api_key() if user.role == "admin" else None
+    password_hash = hash_password(user.password or "mindpilot123")
 
     async with get_db_session() as db:
         try:
             await db.execute(
-                text("INSERT INTO users (id, username, email, role, api_key) "
-                     "VALUES (:id, :username, :email, :role, :api_key)"),
+                text("INSERT INTO users (id, username, email, role, api_key, password_hash) "
+                     "VALUES (:id, :username, :email, :role, :api_key, :hash)"),
                 {
                     "id": user_id,
                     "username": user.username,
                     "email": user.email,
                     "role": user.role,
                     "api_key": api_key,
+                    "hash": password_hash,
                 }
             )
 
