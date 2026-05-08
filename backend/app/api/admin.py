@@ -2,8 +2,9 @@
 Admin API for system management.
 User management, system stats, configuration, and monitoring.
 """
-import logging
-from datetime import datetime
+from datetime import UTC, datetime
+
+from app.core.logger import get_logger
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
@@ -17,7 +18,7 @@ from app.rag.vector_store import vector_store
 from app.storage.database import get_db_session
 from app.storage.redis_client import redis_client
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 router = APIRouter()
 
@@ -129,7 +130,7 @@ async def create_user(
                 role=user.role,
                 is_active=True,
                 api_key=api_key,
-                created_at=datetime.utcnow(),
+                created_at=datetime.now(UTC),
             )
         except Exception as e:
             raise HTTPException(400, f"Failed to create user: {e}")
@@ -298,7 +299,7 @@ async def get_redis_stats(
     current_user: TokenData = Depends(require_role("admin")),
 ):
     """Get Redis statistics (admin only)."""
-    if not redis_client._connected:
+    if not redis_client.is_connected:
         return {"connected": False}
 
     try:
@@ -515,6 +516,59 @@ async def list_skill_logs(
         ]
 
 
+@router.get("/skill-stats")
+async def get_skill_stats(
+    current_user: TokenData = Depends(require_role("admin")),
+):
+    """
+    Get real-time skill usage statistics (admin only).
+
+    Combines in-memory telemetry (current process) with persisted logs (historical).
+    """
+    from app.skills.registry import registry
+
+    # In-memory telemetry from current process
+    live_stats = registry.get_stats()
+
+    # Historical stats from database
+    async with get_db_session() as db:
+        result = await db.execute(
+            text("""
+                SELECT
+                    skill_name,
+                    COUNT(*) as total_calls,
+                    SUM(CASE WHEN success = 1 THEN 1 ELSE 0 END) as success_count,
+                    AVG(latency_ms) as avg_latency_ms,
+                    MAX(created_at) as last_called_at
+                FROM skill_logs
+                WHERE created_at >= DATE_SUB(NOW(), INTERVAL 30 DAY)
+                GROUP BY skill_name
+            """)
+        )
+        rows = result.fetchall()
+
+    historical = {}
+    for row in rows:
+        historical[row[0]] = {
+            "total_calls_30d": row[1],
+            "success_count_30d": row[2],
+            "success_rate_30d": round(row[2] / row[1], 3) if row[1] > 0 else 0,
+            "avg_latency_ms_30d": round(row[3] or 0, 1),
+            "last_called_at": row[4].isoformat() if row[4] else None,
+        }
+
+    # Merge live + historical
+    all_skills = set(list(live_stats.keys()) + list(historical.keys()))
+    merged = {}
+    for name in all_skills:
+        merged[name] = {
+            "live": live_stats.get(name, {}),
+            "historical": historical.get(name, {}),
+        }
+
+    return {"skills": merged}
+
+
 # === System Configuration ===
 
 @router.get("/config")
@@ -557,7 +611,7 @@ async def health_check():
         checks["database"] = "error"
 
     # Check Redis
-    if redis_client._connected:
+    if redis_client.is_connected:
         checks["redis"] = "ok"
     else:
         checks["redis"] = "disconnected"
@@ -570,5 +624,5 @@ async def health_check():
     return {
         "status": "healthy" if all_ok else "degraded",
         "checks": checks,
-        "timestamp": datetime.utcnow().isoformat(),
+        "timestamp": datetime.now(UTC).isoformat(),
     }

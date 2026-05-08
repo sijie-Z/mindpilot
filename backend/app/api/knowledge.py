@@ -3,7 +3,7 @@ Knowledge base management API.
 """
 import asyncio
 import uuid
-from datetime import datetime
+from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
@@ -54,7 +54,7 @@ async def create_knowledge(
         description=data.description,
         doc_count=0,
         chunk_count=0,
-        created_at=datetime.now(),
+        created_at=datetime.now(UTC),
     )
 
 

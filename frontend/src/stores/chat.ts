@@ -4,7 +4,7 @@
  */
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
-import { chatApi, type SSEData } from '@/api/chat'
+import { chatApi, type SSEData, type StreamController } from '@/api/chat'
 import api from '@/api/index'
 
 export interface Source {
@@ -42,13 +42,14 @@ export const useChatStore = defineStore('chat', () => {
   const error = ref<string | null>(null)
   const sessions = ref<ChatSession[]>([])
   const streamingStatus = ref<string>('')
+  let _activeController: StreamController | null = null
 
   const messageCount = computed(() => messages.value.length)
   const lastMessage = computed(() => messages.value[messages.value.length - 1] || null)
   const hasError = computed(() => error.value !== null)
 
   function generateId(): string {
-    return `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
+    return `${Date.now()}-${Math.random().toString(36).substring(2, 11)}`
   }
 
   function addMessage(role: Message['role'], content: string, type: Message['type'] = 'text', sources?: Source[]): Message {
@@ -195,7 +196,8 @@ export const useChatStore = defineStore('chat', () => {
     let statusMsgId: string | null = addMessage('system', '正在连接...', 'status').id
 
     try {
-      await chatApi.streamChat(
+      abortStream()
+      const ctrl = chatApi.streamChat(
         { query, knowledge_id: options?.knowledgeId, image_base64: options?.imageBase64 },
         {
           onMessage: (data: SSEData) => {
@@ -302,6 +304,7 @@ export const useChatStore = defineStore('chat', () => {
 
               case 'done':
                 streamingStatus.value = ''
+                _activeController = null
                 if (statusMsgId) {
                   removeMessage(statusMsgId)
                   statusMsgId = null
@@ -324,6 +327,7 @@ export const useChatStore = defineStore('chat', () => {
             }
           },
           onError: (err) => {
+            _activeController = null
             error.value = err.message
             streamingStatus.value = ''
             if (statusMsgId) {
@@ -335,10 +339,19 @@ export const useChatStore = defineStore('chat', () => {
           },
         }
       )
-    } catch (err: any) {
-      error.value = err.message || 'Failed to send message'
+      _activeController = ctrl
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Failed to send message'
+      error.value = message
       loading.value = false
       addMessage('system', '抱歉，发生了错误，请稍后重试。', 'error')
+    }
+  }
+
+  function abortStream(): void {
+    if (_activeController) {
+      _activeController.abort()
+      _activeController = null
     }
   }
 
@@ -353,6 +366,6 @@ export const useChatStore = defineStore('chat', () => {
     messages, currentSessionId, loading, error, sessions, streamingStatus,
     messageCount, lastMessage, hasError,
     addMessage, updateMessage, removeMessage, clearMessages,
-    startNewSession, loadSession, deleteSession, sendMessage, initialize,
+    startNewSession, loadSession, deleteSession, sendMessage, abortStream, initialize,
   }
 })

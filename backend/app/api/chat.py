@@ -5,7 +5,7 @@ Uses the LangGraph agent graph with real conditional routing.
 import json
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
@@ -22,6 +22,39 @@ from app.core.logger import get_logger
 
 logger = get_logger(__name__)
 router = APIRouter()
+
+# Constants
+IMAGE_CONTEXT_MAX_LENGTH = 500
+SESSION_TITLE_MAX_LENGTH = 30
+
+
+def build_initial_state(request: ChatRequest, session_id: str, streaming: bool) -> AgentState:
+    """Build initial AgentState from request."""
+    return {
+        "query": request.query,
+        "session_id": session_id,
+        "user_id": request.user_id or "anonymous",
+        "knowledge_id": request.knowledge_id,
+        "streaming": streaming,
+        "iterations": 0,
+        "retrieval_attempts": 0,
+        "quality_passed": True,
+        "quality_feedback": "",
+        "intent": "general",
+        "intent_confidence": 0.0,
+        "retrieved_docs": [],
+        "expanded_queries": [],
+        "reranked_docs": [],
+        "skill_results": {},
+        "answer": "",
+        "sources": [],
+        "evaluation": {},
+        "status": "thinking",
+        "messages": [],
+        "created_at": None,
+        "latency_ms": 0,
+        "max_iterations": 5,
+    }
 
 
 class ChatRequest(BaseModel):
@@ -47,38 +80,18 @@ async def stream_chat(request: ChatRequest) -> str:
     llm = AsyncLLMClient()
     session_id = request.session_id or str(uuid.uuid4())
 
+    # Initialize stream scrubber to prevent context leakage
+    from app.core.stream_scrubber import StreamScrubber
+    scrubber = StreamScrubber()
+
     # Connected
     yield f"data: {json.dumps({'type': 'connected', 'session_id': session_id})}\n\n"
 
-    state: AgentState = {
-        "query": request.query,
-        "session_id": session_id,
-        "user_id": request.user_id or "anonymous",
-        "knowledge_id": request.knowledge_id,
-        "streaming": True,
-        "iterations": 0,
-        "retrieval_attempts": 0,
-        "quality_passed": True,
-        "quality_feedback": "",
-        "intent": "general",
-        "intent_confidence": 0.0,
-        "retrieved_docs": [],
-        "expanded_queries": [],
-        "reranked_docs": [],
-        "skill_results": {},
-        "answer": "",
-        "sources": [],
-        "evaluation": {},
-        "status": "thinking",
-        "messages": [],
-        "created_at": None,
-        "latency_ms": 0,
-        "max_iterations": 5,
-    }
+    state = build_initial_state(request, session_id, streaming=True)
 
     try:
         # ── Persist session ──
-        await ctx.session_repo.create_session(session_id, request.user_id or "anonymous", request.query[:30])
+        await ctx.session_repo.create_session(session_id, request.user_id or "anonymous", request.query[:SESSION_TITLE_MAX_LENGTH])
         await ctx.session_repo.add_message(session_id, "user", request.query)
 
         # ── Step 0: Image processing (if image provided) ──
@@ -92,7 +105,7 @@ async def stream_chat(request: ChatRequest) -> str:
                     image_context = await vision.describe_image_base64(request.image_base64)
                 elif request.image_url:
                     image_context = f"[图片URL: {request.image_url}]"
-                state["query"] = f"{request.query}\n\n[图片描述: {image_context[:500]}]"
+                state["query"] = f"{request.query}\n\n[图片描述: {image_context[:IMAGE_CONTEXT_MAX_LENGTH]}]"
                 yield f"data: {json.dumps({'type': 'status', 'content': '图片分析完成'})}\n\n"
             except Exception as e:
                 logger.warning("Image analysis failed, continuing without image context", error=str(e))
@@ -124,11 +137,14 @@ async def stream_chat(request: ChatRequest) -> str:
         state = await answer_node(state, llm=llm)
 
         if state["intent"] == "doc_qa" and state.get("reranked_docs"):
-            # Stream RAG answer chunk by chunk
+            # Stream RAG answer chunk by chunk (with scrubbing)
             async for chunk in generate_answer_stream(request.query, state["reranked_docs"], llm):
-                yield f"data: {json.dumps({'type': 'answer', 'content': chunk, 'chunk': True})}\n\n"
+                safe_chunk = scrubber.scrub(chunk)
+                if safe_chunk:
+                    yield f"data: {json.dumps({'type': 'answer', 'content': safe_chunk, 'chunk': True})}\n\n"
         else:
-            yield f"data: {json.dumps({'type': 'answer', 'content': state['answer'], 'chunk': False})}\n\n"
+            safe_answer = scrubber.scrub(state['answer'])
+            yield f"data: {json.dumps({'type': 'answer', 'content': safe_answer, 'chunk': False})}\n\n"
 
         # ── Step 4: Sources ──
         for i, source in enumerate(state.get("sources", [])):
@@ -184,35 +200,11 @@ async def chat(
 
     session_id = request.session_id or str(uuid.uuid4())
 
-    state = {
-        "query": request.query,
-        "session_id": session_id,
-        "user_id": request.user_id or "anonymous",
-        "knowledge_id": request.knowledge_id,
-        "streaming": False,
-        "iterations": 0,
-        "retrieval_attempts": 0,
-        "quality_passed": True,
-        "quality_feedback": "",
-        "intent": "general",
-        "intent_confidence": 0.0,
-        "retrieved_docs": [],
-        "expanded_queries": [],
-        "reranked_docs": [],
-        "skill_results": {},
-        "answer": "",
-        "sources": [],
-        "evaluation": {},
-        "status": "thinking",
-        "messages": [],
-        "created_at": None,
-        "latency_ms": 0,
-        "max_iterations": 5,
-    }
+    state = build_initial_state(request, session_id, streaming=False)
 
     try:
         # ── Persist session ──
-        await ctx.session_repo.create_session(session_id, request.user_id or "anonymous", request.query[:30])
+        await ctx.session_repo.create_session(session_id, request.user_id or "anonymous", request.query[:SESSION_TITLE_MAX_LENGTH])
 
         # ── Save user message ──
         await ctx.session_repo.add_message(session_id, "user", request.query)
@@ -244,7 +236,7 @@ async def chat(
         return ChatResponse(answer=answer, sources=sources, evaluation=evaluation, session_id=session_id)
     except Exception as e:
         logger.error("Chat failed", error=str(e))
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="An error occurred while processing your request")
 
 
 # ── Session management endpoints ──
@@ -272,3 +264,24 @@ async def delete_session(session_id: str):
     if not success:
         raise HTTPException(status_code=500, detail="Failed to delete session")
     return {"status": "deleted", "session_id": session_id}
+
+
+@router.get("/search")
+async def search_conversations(
+    q: str,
+    user_id: str = "anonymous",
+    limit: int = Query(20, ge=1, le=100),
+):
+    """
+    Full-text search across conversation history.
+
+    Uses MySQL FULLTEXT with ngram parser for Chinese tokenization.
+    Returns matching messages with session context for cross-session recall.
+    """
+    if not q.strip():
+        return {"results": [], "query": q}
+
+    results = await ctx.session_repo.search_messages(
+        query=q, user_id=user_id, limit=limit
+    )
+    return {"results": results, "query": q, "count": len(results)}

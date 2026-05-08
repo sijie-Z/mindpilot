@@ -31,6 +31,11 @@ class MilvusVectorStore:
         self._connected = False
         self._collection: Collection | None = None
 
+    @property
+    def is_connected(self) -> bool:
+        """Public connection status check."""
+        return self._connected
+
     def connect(self):
         """Connect to Milvus server."""
         try:
@@ -151,8 +156,10 @@ class MilvusVectorStore:
                 "params": {"ef": 64},
             }
 
-            # Filter by knowledge_id if specified
-            expr = f'knowledge_id == "{knowledge_id}"' if knowledge_id else ""
+            # Filter by knowledge_id if specified (sanitize to prevent expression injection)
+            import re
+            safe_id = re.sub(r'[^a-zA-Z0-9\-_]', '', knowledge_id) if knowledge_id else ""
+            expr = f'knowledge_id == "{safe_id}"' if safe_id else ""
 
             results = self._collection.search(
                 data=[query_vector],
@@ -182,7 +189,9 @@ class MilvusVectorStore:
             return False
 
         try:
-            expr = f'chunk_id in {chunk_ids}'
+            import re
+            safe_ids = [re.sub(r'[^a-zA-Z0-9\-_]', '', cid) for cid in chunk_ids]
+            expr = f'chunk_id in {safe_ids}'
             self._collection.delete(expr)
             self._collection.flush()
             return True

@@ -15,6 +15,11 @@ class RedisClient:
     def __init__(self):
         self._client: redis.Redis | None = None
 
+    @property
+    def is_connected(self) -> bool:
+        """Check if Redis client is connected."""
+        return self._client is not None
+
     async def connect(self):
         """Connect to Redis."""
         self._client = redis.from_url(

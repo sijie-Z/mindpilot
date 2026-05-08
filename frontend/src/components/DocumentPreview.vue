@@ -144,7 +144,13 @@ function statusText(status?: string): string {
 
 function renderContent(text: string): string {
   if (!text) return ''
-  return text
+  // Escape HTML first, then apply markdown-like formatting
+  const escaped = text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+  return escaped
     .replace(/\n/g, '<br>')
     .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
     .replace(/\*(.*?)\*/g, '<em>$1</em>')

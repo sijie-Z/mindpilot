@@ -81,7 +81,8 @@ async def generate_answer(
         self_rag = SelfRAG(llm)
 
         prompt = build_rag_prompt(query, docs)
-        answer = await llm.chat(messages=[{"role": "user", "content": prompt}], model="glm-4")
+        from app.config import settings
+        answer = await llm.chat(messages=[{"role": "user", "content": prompt}], model=settings.LLM_MODEL)
         result = await self_rag.evaluate_and_correct(query, answer, docs)
         return {
             "answer": result["final_answer"],
@@ -146,41 +147,26 @@ async def answer_node(state: AgentState, llm: AsyncLLMClient | None = None) -> A
                     "score": doc.get("rerank_score", doc.get("score", 0)),
                 })
 
-        elif intent == "search":
-            try:
-                from app.skills.search_skill import search_skill
-                result = await search_skill.execute(query)
-                answer = result.result if result.success else f"搜索出错: {result.error}"
-            except Exception as e:
-                answer = f"搜索功能暂时不可用: {e}"
-
-        elif intent == "calculation":
-            try:
-                from app.skills.calc_skill import calc_skill
-                result = await calc_skill.execute(query)
-                answer = result.result if result.success else f"计算出错: {result.error}"
-            except Exception as e:
-                answer = f"计算功能暂时不可用: {e}"
-
-        elif intent == "code":
-            answer = await llm.chat(
-                messages=[{
-                    "role": "user",
-                    "content": f"你是一个编程助手。请回答以下问题并提供代码示例：\n\n{query}",
-                }],
-                model="glm-4",
-            )
+        elif intent in ("search", "calculation", "image", "code", "analysis"):
+            from app.skills.registry import registry
+            skill = registry.get_for_intent(intent)
+            if skill:
+                result = await registry.execute(skill.name, query)
+                answer = result.result if result.success else f"{skill.description}出错: {result.error}"
+            else:
+                answer = f"未找到处理 {intent} 的技能"
 
         else:
             # General chat
+            from app.config import settings
             answer = await llm.chat(
                 messages=[{"role": "user", "content": query}],
-                model="glm-4-flash",
+                model=settings.LLM_MODEL,
             )
 
     except Exception as e:
         logger.error("Answer generation failed", intent=intent, error=str(e))
-        answer = f"抱歉，生成回答时发生错误: {e}"
+        answer = "抱歉，生成回答时发生错误，请稍后重试。"
 
     logger.info("Answer generated", intent=intent, answer_len=len(answer), has_sources=len(sources) > 0)
 

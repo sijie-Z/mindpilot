@@ -3,9 +3,14 @@ Retry mechanisms for MindPilot using tenacity.
 
 Provides configurable retry decorators for external service calls,
 with support for different retry strategies per service type.
+
+Implements decorrelated jitter (Hermes Agent pattern) to prevent
+thundering-herd across concurrent requests.
 """
 import asyncio
 import logging
+import random
+import time
 from collections.abc import Callable
 from functools import wraps
 from typing import Any
@@ -21,9 +26,9 @@ from tenacity import (
     stop_after_delay,
     wait_exponential,
     wait_fixed,
-    wait_random,
 )
 
+from app.core.error_classifier import classify, FailoverReason
 from app.core.exceptions import (
     CacheConnectionException,
     CacheException,
@@ -74,6 +79,23 @@ CACHE_RETRYABLE: tuple[type[Exception], ...] = (
 )
 
 
+_jitter_counter = 0
+
+def decorrelated_jitter(base: float = 5.0, cap: float = 120.0) -> float:
+    """
+    Decorrelated jitter (Hermes Agent pattern).
+
+    Uses time.time_ns() XOR with monotonic counter to prevent
+    thundering-herd across concurrent sessions.
+    """
+    global _jitter_counter
+    _jitter_counter += 1
+    seed = time.time_ns() ^ (_jitter_counter * 2654435761)  # Knuth multiplicative hash
+    rng = random.Random(seed)
+    jitter = rng.uniform(0, base * 3)
+    return min(jitter, cap)
+
+
 def is_rate_limit_error(exception: Exception) -> bool:
     """Check if exception is a rate limit error."""
     return isinstance(exception, LLMRateLimitException) or (
@@ -83,16 +105,8 @@ def is_rate_limit_error(exception: Exception) -> bool:
 
 def is_transient_error(exception: Exception) -> bool:
     """Check if exception is a transient/retryable error."""
-    transient_keywords = [
-        "connection",
-        "timeout",
-        "temporarily",
-        "unavailable",
-        "overloaded",
-        "retry",
-    ]
-    error_str = str(exception).lower()
-    return any(keyword in error_str for keyword in transient_keywords)
+    classification = classify(exception)
+    return classification.retryable
 
 
 # Default retry configurations
@@ -126,7 +140,7 @@ def vector_store_retry(
             multiplier=DEFAULT_EXP_MULTIPLIER,
             min=DEFAULT_EXP_MIN_WAIT,
             max=DEFAULT_EXP_MAX_WAIT,
-        ) + wait_random(0, 2),
+        ),
         before_sleep=before_sleep_log(logger.logger, logging.INFO),
         after=after_log(logger.logger, logging.INFO),
         reraise=True,
@@ -171,7 +185,10 @@ def llm_retry(
     """
     Retry decorator for LLM operations.
 
-    Uses longer wait for rate limits, exponential backoff for other errors.
+    Uses error classifier to determine wait strategy:
+    - Rate limits: longer decorrelated jitter backoff
+    - Context overflow: no retry, should compress
+    - Other transient: decorrelated jitter backoff
 
     Args:
         max_attempts: Maximum number of retry attempts
@@ -182,16 +199,24 @@ def llm_retry(
         Decorated function with retry logic
     """
     def wait_strategy(retry_state: Any) -> float:
-        """Custom wait strategy based on error type."""
+        """Custom wait strategy using error classifier + decorrelated jitter."""
         exception = retry_state.outcome.exception()
+        if exception is None:
+            return decorrelated_jitter()
+
+        classification = classify(exception)
+
+        if classification.reason == FailoverReason.CONTEXT_OVERFLOW:
+            # Don't wait, signal compression
+            return 0.0
+
+        if classification.backoff_seconds > 0:
+            return classification.backoff_seconds
+
         if is_rate_limit_error(exception):
-            # Longer wait for rate limits
-            return wait_fixed(rate_limit_wait_multiplier * retry_state.attempt_number)(retry_state)
-        return wait_exponential(
-            multiplier=DEFAULT_EXP_MULTIPLIER,
-            min=DEFAULT_EXP_MIN_WAIT,
-            max=DEFAULT_EXP_MAX_WAIT,
-        )(retry_state)
+            return decorrelated_jitter(base=rate_limit_wait_multiplier * retry_state.attempt_number)
+
+        return decorrelated_jitter()
 
     return retry(
         retry=retry_if_exception_type(LLM_RETRYABLE),

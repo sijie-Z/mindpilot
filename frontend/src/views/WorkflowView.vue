@@ -179,7 +179,7 @@
 
 <script setup lang="ts">
 import { ref, reactive, onMounted } from 'vue'
-import { marked } from 'marked'
+import { renderMarkdown } from '@/utils/markdown'
 import api from '@/api/index'
 import { chatApi, type SSEData } from '@/api/chat'
 
@@ -244,7 +244,7 @@ async function runWorkflow() {
             case 'source': if (data.source) sources.push(data.source); break
             case 'evaluation':
               nodeStatus.answer = 'success'; nodeStatus.evaluation = 'running'
-              if (data.data) nodeData.score = data.data.faithfulness || data.data.score || 0
+              if (data.data) nodeData.score = (data.data.faithfulness as number) || (data.data.score as number) || 0
               break
             case 'done':
               nodeStatus.evaluation = 'success'; nodeStatus.end = 'success'
@@ -303,7 +303,7 @@ function formatTime(ts: number) {
 }
 
 function formatMarkdown(text: string) {
-  return marked.parse(text || '') as string
+  return renderMarkdown(text || '')
 }
 
 onMounted(() => {

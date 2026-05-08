@@ -2,7 +2,6 @@
 Document upload and management API.
 Uses MySQL + Milvus dual-write with rollback for data consistency.
 """
-import logging
 import os
 import uuid
 
@@ -12,13 +11,14 @@ from pydantic import BaseModel
 from sqlalchemy import text
 
 from app.config import settings
+from app.core.logger import get_logger
 from app.rag.chunker import TextChunker
 from app.rag.consistency import consistency_manager
 from app.rag.embedder import embedder
 from app.rag.parser import DocumentParser
 from app.storage.database import get_db_session
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 router = APIRouter()
 
@@ -144,6 +144,12 @@ async def upload_document(
     if ext not in {".pdf", ".docx", ".doc", ".pptx", ".ppt", ".txt", ".md"}:
         raise HTTPException(400, f"Unsupported file type: {ext}")
 
+    # Check file size
+    content = await file.read()
+    max_size = settings.MAX_UPLOAD_SIZE_MB * 1024 * 1024
+    if len(content) > max_size:
+        raise HTTPException(413, f"File too large. Maximum size is {settings.MAX_UPLOAD_SIZE_MB}MB")
+
     # Create knowledge base if needed
     async with get_db_session() as db:
         if not knowledge_id and knowledge_name:
@@ -160,7 +166,6 @@ async def upload_document(
         # Save file
         file_path = os.path.join(UPLOAD_DIR, f"{doc_id}{ext}")
         async with aiofiles.open(file_path, "wb") as f:
-            content = await file.read()
             await f.write(content)
 
         # Create document record

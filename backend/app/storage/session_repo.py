@@ -2,7 +2,7 @@
 Session and message persistence for multi-turn conversations.
 """
 import json
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 
 from sqlalchemy import text
@@ -68,7 +68,7 @@ class SessionRepository:
                 # Update session timestamp
                 await db.execute(
                     text("UPDATE sessions SET updated_at = :now WHERE id = :sid"),
-                    {"now": datetime.now(), "sid": session_id},
+                    {"now": datetime.now(UTC), "sid": session_id},
                 )
         except Exception as e:
             logger.error("Failed to add message", error=str(e))
@@ -167,6 +167,73 @@ class SessionRepository:
         metrics: dict[str, Any],
         latency_ms: int = 0,
     ) -> None:
+        """Save RAGAS evaluation results."""
+        try:
+            async with get_db_session() as db:
+                import uuid
+                eval_id = str(uuid.uuid4())
+                await db.execute(
+                    text(
+                        "INSERT INTO evaluations (id, session_id, query, answer, contexts, "
+                        "metrics, faithfulness, answer_relevance, context_precision, latency_ms) "
+                        "VALUES (:id, :sid, :query, :answer, :contexts, :metrics, "
+                        ":faith, :rel, :prec, :lat)"
+                    ),
+                    {
+                        "id": eval_id,
+                        "sid": session_id,
+                        "query": query,
+                        "answer": answer,
+                        "contexts": json.dumps(contexts, ensure_ascii=False),
+                        "metrics": json.dumps(metrics, ensure_ascii=False),
+                        "faith": metrics.get("faithfulness"),
+                        "rel": metrics.get("answer_relevance"),
+                        "prec": metrics.get("context_precision"),
+                        "lat": latency_ms,
+                    },
+                )
+        except Exception as e:
+            logger.error("Failed to save evaluation", error=str(e))
+
+    async def search_messages(
+        self,
+        query: str,
+        user_id: str = "anonymous",
+        limit: int = 20,
+    ) -> list[dict[str, Any]]:
+        """
+        Full-text search across conversation history.
+
+        Uses MySQL FULLTEXT with ngram parser for Chinese support.
+        Returns matching messages with session context.
+        """
+        try:
+            async with get_db_session() as db:
+                result = await db.execute(
+                    text(
+                        "SELECT m.session_id, m.role, m.content, m.created_at, "
+                        "s.title AS session_title "
+                        "FROM messages m "
+                        "JOIN sessions s ON m.session_id = s.id "
+                        "WHERE s.user_id = :uid AND s.is_active = TRUE "
+                        "AND MATCH(m.content) AGAINST(:query IN NATURAL LANGUAGE MODE) "
+                        "ORDER BY m.created_at DESC LIMIT :lim"
+                    ),
+                    {"uid": user_id, "query": query, "lim": limit},
+                )
+                return [
+                    {
+                        "session_id": row[0],
+                        "role": row[1],
+                        "content": row[2][:300] + "..." if len(row[2]) > 300 else row[2],
+                        "created_at": str(row[3]),
+                        "session_title": row[4],
+                    }
+                    for row in result.fetchall()
+                ]
+        except Exception as e:
+            logger.error("Failed to search messages", error=str(e))
+            return []
         """Save RAGAS evaluation results."""
         try:
             async with get_db_session() as db:

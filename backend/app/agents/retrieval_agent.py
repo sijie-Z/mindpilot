@@ -98,6 +98,20 @@ async def retrieval_node(state: AgentState, llm: AsyncLLMClient | None = None) -
         logger.error("Reranking failed, using raw results", error=str(e))
         reranked_docs = sorted(retrieved_docs, key=lambda x: x.get("score", 0), reverse=True)[:5]
 
+    # ── Step 4: Injection scanning ──
+    if reranked_docs:
+        try:
+            from app.core.injection_scanner import InjectionScanner
+            scanner = InjectionScanner()
+            reranked_docs = scanner.scan_documents(reranked_docs)
+            if scanner.stats["detection_count"] > 0:
+                logger.warning(
+                    "Injection patterns detected in retrieved docs",
+                    detections=scanner.stats["detection_count"],
+                )
+        except Exception as e:
+            logger.warning("Injection scanning failed, continuing", error=str(e))
+
     # ── Build sources ──
     sources = []
     for doc in reranked_docs[:5]:

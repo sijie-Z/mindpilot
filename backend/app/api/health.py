@@ -96,7 +96,7 @@ def check_vector_store() -> ComponentHealth:
     start = time.perf_counter()
     try:
         if settings.VECTOR_STORE == "milvus":
-            if not vector_store._connected:
+            if not vector_store.is_connected:
                 vector_store.connect()
             stats = vector_store.get_stats()
             latency = (time.perf_counter() - start) * 1000

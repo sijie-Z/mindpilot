@@ -23,7 +23,10 @@ api.interceptors.response.use(
   (error) => {
     if (error.response?.status === 401) {
       localStorage.removeItem('token')
-      window.location.href = '/login'
+      localStorage.removeItem('username')
+      localStorage.removeItem('user_id')
+      // Use router navigation instead of hard reload
+      window.dispatchEvent(new CustomEvent('auth:logout'))
     }
     return Promise.reject(error)
   }

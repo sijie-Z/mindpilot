@@ -110,6 +110,43 @@
           <button class="btn-secondary" @click="refreshStats">刷新</button>
         </div>
       </div>
+
+      <!-- Skill Stats -->
+      <div v-if="activeTab === 'skills'" class="panel">
+        <h2>技能使用统计</h2>
+        <div class="skill-grid">
+          <div v-for="(data, name) in skillStats" :key="name" class="skill-card">
+            <div class="skill-header">
+              <span class="skill-name">{{ name }}</span>
+              <span class="skill-badge" :class="(data.live?.success_rate as number) > 0.8 ? 'badge-ok' : 'badge-warn'">
+                {{ ((data.live?.success_rate as number || 0) * 100).toFixed(0) }}%
+              </span>
+            </div>
+            <div class="skill-metrics">
+              <div class="skill-metric">
+                <span class="metric-num">{{ data.live?.call_count || 0 }}</span>
+                <span class="metric-lbl">本次调用</span>
+              </div>
+              <div class="skill-metric">
+                <span class="metric-num">{{ data.historical?.total_calls_30d || 0 }}</span>
+                <span class="metric-lbl">30天总计</span>
+              </div>
+              <div class="skill-metric">
+                <span class="metric-num">{{ data.live?.avg_latency_ms || 0 }}<small>ms</small></span>
+                <span class="metric-lbl">平均延迟</span>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="form-actions">
+          <button class="btn-secondary" @click="loadSkillStats">刷新</button>
+        </div>
+      </div>
+
+      <!-- Quality Dashboard -->
+      <div v-if="activeTab === 'quality'" class="panel panel-full">
+        <QualityDashboard />
+      </div>
     </main>
   </div>
 </template>
@@ -117,6 +154,7 @@
 <script setup lang="ts">
 import { ref, reactive, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
+import QualityDashboard from '@/components/QualityDashboard.vue'
 import api from '@/api/index'
 
 const activeTab = ref('model')
@@ -125,14 +163,19 @@ const vectorWeight = ref(70)
 const tabs = [
   { key: 'model', label: '模型配置' },
   { key: 'retrieval', label: '检索设置' },
+  { key: 'skills', label: '技能统计' },
   { key: 'monitor', label: '系统监控' },
+  { key: 'quality', label: '质量仪表盘' },
 ]
 
 const modelSettings = reactive({ model: 'glm-4-flash', embedding: 'embedding-3' })
 const retrievalSettings = reactive({ top_k: 10, rerank_enabled: true })
-const stats = reactive<any>({ total_queries: 0, avg_latency: 0, token_usage: '0', avg_score: 0 })
+const stats = reactive<{ total_queries: number; avg_latency: number; token_usage: string; avg_score: number }>({
+  total_queries: 0, avg_latency: 0, token_usage: '0', avg_score: 0,
+})
+const skillStats = ref<Record<string, { live: Record<string, unknown>; historical: Record<string, unknown> }>>({})
 
-onMounted(() => loadSettings())
+onMounted(() => { loadSettings(); loadSkillStats() })
 
 async function loadSettings() {
   try {
@@ -142,6 +185,8 @@ async function loadSettings() {
       vectorWeight.value = Math.round((cfg.vector_weight || 0.7) * 100)
       retrievalSettings.top_k = cfg.top_k || 10
       retrievalSettings.rerank_enabled = cfg.rerank_enabled ?? true
+      if (cfg.llm_model) modelSettings.model = cfg.llm_model
+      if (cfg.embedding_model) modelSettings.embedding = cfg.embedding_model
     }
   } catch { /* use defaults */ }
 
@@ -151,8 +196,14 @@ async function loadSettings() {
   } catch { /* unavailable */ }
 }
 
-function saveModelSettings() {
-  ElMessage.success('模型配置已保存')
+async function saveModelSettings() {
+  try {
+    await api.put('/knowledge/retrieval-config/config', {
+      llm_model: modelSettings.model,
+      embedding_model: modelSettings.embedding,
+    })
+    ElMessage.success('模型配置已保存')
+  } catch { ElMessage.error('保存失败') }
 }
 
 async function saveRetrievalSettings() {
@@ -173,6 +224,13 @@ async function refreshStats() {
     Object.assign(stats, res.data || {})
     ElMessage.success('已刷新')
   } catch { ElMessage.error('刷新失败') }
+}
+
+async function loadSkillStats() {
+  try {
+    const res = await api.get('/admin/skill-stats')
+    skillStats.value = res.data?.skills || {}
+  } catch { /* unavailable */ }
 }
 </script>
 
@@ -239,6 +297,12 @@ async function refreshStats() {
   border: 1px solid var(--color-border);
   border-radius: var(--radius-lg);
   padding: var(--space-6);
+}
+.panel-full {
+  max-width: none;
+  padding: 0;
+  border: none;
+  background: transparent;
 }
 .panel h2 {
   font-size: var(--text-lg);
@@ -395,5 +459,67 @@ async function refreshStats() {
   font-size: var(--text-xs);
   color: var(--color-text-tertiary);
   margin-top: var(--space-1);
+}
+
+/* ── Skill Cards ── */
+.skill-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: var(--space-4);
+  margin-bottom: var(--space-6);
+}
+.skill-card {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border-light);
+  border-radius: var(--radius-md);
+  padding: var(--space-4);
+}
+.skill-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: var(--space-3);
+}
+.skill-name {
+  font-weight: var(--font-semibold);
+  font-size: var(--text-sm);
+  color: var(--color-text);
+}
+.skill-badge {
+  font-size: var(--text-xs);
+  padding: 2px 8px;
+  border-radius: var(--radius-full);
+  font-weight: var(--font-medium);
+}
+.badge-ok {
+  background: var(--color-success-bg, #e6f9ee);
+  color: var(--color-success, #22c55e);
+}
+.badge-warn {
+  background: var(--color-warning-bg, #fef3cd);
+  color: var(--color-warning, #f59e0b);
+}
+.skill-metrics {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: var(--space-2);
+}
+.skill-metric {
+  text-align: center;
+}
+.metric-num {
+  display: block;
+  font-size: var(--text-lg);
+  font-weight: var(--font-bold);
+  color: var(--color-primary);
+}
+.metric-num small {
+  font-size: var(--text-xs);
+  font-weight: var(--font-normal);
+  color: var(--color-text-tertiary);
+}
+.metric-lbl {
+  font-size: var(--text-xs);
+  color: var(--color-text-tertiary);
 }
 </style>

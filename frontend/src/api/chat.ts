@@ -14,8 +14,8 @@ export interface SSEData {
   chunk?: boolean
   count?: number
   top_k?: number
-  source?: any
-  data?: any
+  source?: Record<string, unknown>
+  data?: Record<string, unknown>
   latency_ms?: number
 }
 
@@ -24,8 +24,17 @@ export interface ChatHandlers {
   onError?: (error: Error) => void
 }
 
+export interface StreamController {
+  abort: () => void
+}
+
 export const chatApi = {
-  async streamChat(message: ChatMessage, handlers: ChatHandlers): Promise<void> {
+  /**
+   * Start a streaming chat request. Returns a controller to abort the stream.
+   */
+  streamChat(message: ChatMessage, handlers: ChatHandlers): StreamController {
+    const controller = new AbortController()
+
     const token = localStorage.getItem('token')
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
@@ -34,63 +43,74 @@ export const chatApi = {
       headers['Authorization'] = `Bearer ${token}`
     }
 
-    const response = await fetch('/api/chat/stream', {
-      method: 'POST',
-      headers,
-      body: JSON.stringify(message),
-    })
+    ;(async () => {
+      try {
+        const response = await fetch('/api/chat/stream', {
+          method: 'POST',
+          headers,
+          body: JSON.stringify(message),
+          signal: controller.signal,
+        })
 
-    if (!response.ok) {
-      throw new Error(`HTTP error! status: ${response.status}`)
-    }
+        if (!response.ok) {
+          throw new Error(`HTTP error! status: ${response.status}`)
+        }
 
-    const reader = response.body?.getReader()
-    if (!reader) {
-      throw new Error('Response body is not readable')
-    }
+        const reader = response.body?.getReader()
+        if (!reader) {
+          throw new Error('Response body is not readable')
+        }
 
-    const decoder = new TextDecoder()
-    let buffer = ''
+        const decoder = new TextDecoder()
+        let buffer = ''
 
-    try {
-      while (true) {
-        const { done, value } = await reader.read()
-        if (done) break
+        try {
+          while (true) {
+            const { done, value } = await reader.read()
+            if (done) break
 
-        buffer += decoder.decode(value, { stream: true })
+            buffer += decoder.decode(value, { stream: true })
 
-        // Process complete lines
-        const lines = buffer.split('\n')
-        buffer = lines.pop() || '' // Keep incomplete line in buffer
+            // Process complete lines
+            const lines = buffer.split('\n')
+            buffer = lines.pop() || '' // Keep incomplete line in buffer
 
-        for (const line of lines) {
-          if (line.startsWith('data: ')) {
-            try {
-              const data = JSON.parse(line.slice(6))
-              handlers.onMessage(data)
-            } catch (e) {
-              // Ignore parse errors for incomplete JSON
+            for (const line of lines) {
+              if (line.startsWith('data: ')) {
+                try {
+                  const data = JSON.parse(line.slice(6))
+                  handlers.onMessage(data)
+                } catch {
+                  // Ignore parse errors for incomplete JSON
+                }
+              }
             }
           }
-        }
-      }
 
-      // Process any remaining data in buffer
-      if (buffer.startsWith('data: ')) {
-        try {
-          const data = JSON.parse(buffer.slice(6))
-          handlers.onMessage(data)
-        } catch (e) {
-          // Ignore
+          // Process any remaining data in buffer
+          if (buffer.startsWith('data: ')) {
+            try {
+              const data = JSON.parse(buffer.slice(6))
+              handlers.onMessage(data)
+            } catch {
+              // Ignore
+            }
+          }
+        } catch (error) {
+          if ((error as Error).name === 'AbortError') return
+          handlers.onError?.(error as Error)
+          throw error
         }
+      } catch (error) {
+        if ((error as Error).name === 'AbortError') return
+        handlers.onError?.(error as Error)
       }
-    } catch (error) {
-      handlers.onError?.(error as Error)
-      throw error
-    }
+    })()
+
+    return { abort: () => controller.abort() }
   },
 
-  async chat(message: ChatMessage): Promise<any> {
+  async chat(message: ChatMessage): Promise<unknown> {
     const response = await api.post('/chat/', message)
     return response.data
   },

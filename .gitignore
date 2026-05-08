@@ -2,6 +2,10 @@
 .env
 .env.local
 .env.*.local
+bot/.env
+backend/.env
+frontend/.env
+frontend/.env.*
 
 # Python
 **/__pycache__/
@@ -14,7 +18,6 @@ venv/
 
 # Node
 node_modules/
-dist/
 
 # IDE
 .vscode/
@@ -42,3 +45,11 @@ coverage.xml
 
 # Docker
 **/mysql_data/
+**/redis_data/
+**/milvus_data/
+**/etcd_data/
+**/minio_data/
+
+# Playwright
+frontend/playwright-report/
+frontend/test-results/

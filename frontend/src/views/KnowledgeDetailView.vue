@@ -193,7 +193,14 @@
                 <span class="result-score">相关度 {{ (r.score * 100).toFixed(1) }}%</span>
                 <span class="result-file">{{ r.metadata?.filename || '未知' }}</span>
               </div>
-              <div class="result-content">{{ r.content?.slice(0, 200) }}{{ r.content?.length > 200 ? '...' : '' }}</div>
+              <div class="result-content">
+                <HighlightedText
+                  :text="r.content || ''"
+                  :sentences="r.sentence_scores"
+                  :top-sentences="r.highlighted_sentences"
+                  :threshold="0.3"
+                />
+              </div>
             </div>
           </div>
         </div>
@@ -206,6 +213,7 @@
 import { ref, computed, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { ElMessage } from 'element-plus'
+import HighlightedText from '@/components/HighlightedText.vue'
 import api from '@/api/index'
 
 const route = useRoute()
@@ -267,7 +275,18 @@ async function runRetrievalTest() {
       top_k: testTopK.value,
       vector_weight: testWeight.value,
     })
-    testResults.value = res.data?.results || res.data || []
+    const results = res.data?.results || res.data || []
+
+    // Apply semantic highlighting to results
+    try {
+      const highlightRes = await api.post('/highlight/chunks', results, {
+        params: { query: testQuery.value, top_k: 3 },
+      })
+      testResults.value = highlightRes.data?.chunks || results
+    } catch {
+      // Highlighting failed, use original results
+      testResults.value = results
+    }
   } catch { ElMessage.error('检索失败') }
   finally { testing.value = false }
 }

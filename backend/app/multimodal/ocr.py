@@ -51,8 +51,10 @@ class OCRProcessor:
                 if text.strip():
                     pages.append({"page": i + 1, "text": text, "method": "direct"})
                 else:
+                    import tempfile
                     pix = page.get_pixmap(dpi=300)
-                    img_path = f"/tmp/pdf_page_{i}.png"
+                    with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp:
+                        img_path = tmp.name
                     pix.save(img_path)
                     ocr_result = self._get_ocr().ocr(img_path, cls=True)
                     lines = []

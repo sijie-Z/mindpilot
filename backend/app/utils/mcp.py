@@ -164,11 +164,13 @@ mcp_server = MCPServer()
 
 # Register built-in tools
 async def register_builtin_tools():
-    """Register MindPilot's built-in MCP tools."""
-    from app.skills.calc_skill import calc_skill
-    from app.skills.image_skill import image_skill
-    from app.skills.rag_skill import rag_skill
-    from app.skills.search_skill import search_skill
+    """Register MindPilot's built-in MCP tools from skill registry."""
+    from app.skills.registry import registry
+
+    calc_skill = registry.get("calculator")
+    search_skill = registry.get("web_search")
+    rag_skill = registry.get("doc_qa")
+    image_skill = registry.get("image_understanding")
 
     # Calculator tool
     mcp_server.register(

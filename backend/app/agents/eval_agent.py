@@ -2,7 +2,7 @@
 Evaluation agent using LLM-based RAGAS-like metrics.
 Replaces heuristic string matching with real LLM-as-judge evaluation.
 """
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 
 from app.agents.state import AgentState
@@ -211,7 +211,7 @@ async def eval_node(state: AgentState, llm: AsyncLLMClient | None = None) -> Age
     created_at = state.get("created_at")
     latency_ms = 0
     if created_at:
-        latency_ms = int((datetime.now() - created_at).total_seconds() * 1000)
+        latency_ms = int((datetime.now(UTC) - created_at).total_seconds() * 1000)
     evaluation["latency_ms"] = latency_ms
 
     logger.info("Evaluation complete", **evaluation)

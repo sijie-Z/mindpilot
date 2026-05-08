@@ -19,6 +19,11 @@ export const useAppStore = defineStore('app', () => {
   const theme = ref<Theme>('light')
   const error = ref<string | null>(null)
 
+  // Internal state
+  let _healthInterval: ReturnType<typeof setInterval> | null = null
+  let _mediaQuery: MediaQueryList | null = null
+  let _initialized = false
+
   // Computed
   const isDarkMode = computed(() => {
     if (theme.value === 'auto') {
@@ -33,11 +38,10 @@ export const useAppStore = defineStore('app', () => {
     error.value = null
 
     try {
-      // Use direct axios call without baseURL to hit /health directly
       const response = await axios.get('/health', { timeout: 5000 })
       backendOnline.value = response.status === 200
       return backendOnline.value
-    } catch (err: any) {
+    } catch (err: unknown) {
       backendOnline.value = false
       error.value = '无法连接到后端服务'
       console.warn('Backend health check failed:', err)
@@ -61,6 +65,7 @@ export const useAppStore = defineStore('app', () => {
     theme.value = newTheme
     applyTheme()
     persistPreferences()
+    setupMediaListener()
   }
 
   function applyTheme(): void {
@@ -96,24 +101,48 @@ export const useAppStore = defineStore('app', () => {
     }
   }
 
+  function setupMediaListener(): void {
+    // Clean up previous listener
+    if (_mediaQuery) {
+      _mediaQuery.removeEventListener('change', applyTheme)
+      _mediaQuery = null
+    }
+    // Add listener if auto theme
+    if (theme.value === 'auto') {
+      _mediaQuery = window.matchMedia('(prefers-color-scheme: dark)')
+      _mediaQuery.addEventListener('change', applyTheme)
+    }
+  }
+
   function clearError(): void {
     error.value = null
   }
 
   function initialize(): void {
+    // Prevent double initialization
+    if (_initialized) return
+    _initialized = true
+
     loadPreferences()
+    setupMediaListener()
     checkBackendHealth()
 
-    // Listen for system theme changes
-    if (theme.value === 'auto') {
-      const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)')
-      mediaQuery.addEventListener('change', applyTheme)
-    }
-
     // Periodic health check (every 30 seconds)
-    setInterval(() => {
+    _healthInterval = setInterval(() => {
       checkBackendHealth()
     }, 30000)
+  }
+
+  function cleanup(): void {
+    if (_healthInterval) {
+      clearInterval(_healthInterval)
+      _healthInterval = null
+    }
+    if (_mediaQuery) {
+      _mediaQuery.removeEventListener('change', applyTheme)
+      _mediaQuery = null
+    }
+    _initialized = false
   }
 
   return {
@@ -135,5 +164,6 @@ export const useAppStore = defineStore('app', () => {
     applyTheme,
     clearError,
     initialize,
+    cleanup,
   }
 })

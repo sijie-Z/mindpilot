@@ -23,6 +23,7 @@ def upgrade() -> None:
         sa.Column("id", sa.String(36), primary_key=True),
         sa.Column("username", sa.String(50), unique=True, nullable=False),
         sa.Column("email", sa.String(100), unique=True, nullable=True),
+        sa.Column("password_hash", sa.String(255), nullable=False),
         sa.Column("role", sa.Enum("user", "admin", name="userrole"), default="user"),
         sa.Column("api_key", sa.String(100), unique=True, nullable=True),
         sa.Column("is_active", sa.Boolean(), default=True),
@@ -55,6 +56,10 @@ def upgrade() -> None:
     )
     op.create_index("ix_messages_session_id", "messages", ["session_id"])
     op.create_index("ix_messages_created_at", "messages", ["created_at"])
+    # Fulltext index on messages for conversation history search (Chinese support)
+    op.execute(
+        "CREATE FULLTEXT INDEX messages_content_fulltext ON messages (content) WITH PARSER ngram"
+    )
 
     # ── knowledges ──
     op.create_table(

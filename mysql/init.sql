@@ -149,9 +149,10 @@ CREATE TABLE IF NOT EXISTS skill_logs (
     INDEX idx_created_at (created_at)
 );
 
--- Insert default admin user (password: admin123)
+-- Insert default admin user (password: admin123, bcrypt hash)
+-- IMPORTANT: Change this password immediately in production!
 INSERT INTO users (id, username, email, password_hash, role, api_key)
-VALUES ('admin-001', 'admin', 'admin@mindpilot.com', '240be518fabd2724ddb6f04eeb1da5967448d7e831c08c8fa822809f74c720a9', 'admin', 'mindpilot-api-key')
+VALUES ('admin-001', 'admin', 'admin@mindpilot.com', '$2b$12$LJ3m4ys3Lk0TSwMFQq0hOeflbXM.7t1/S/ICoIgHhSeJcxl2VE7Vu', 'admin', NULL)
 ON DUPLICATE KEY UPDATE username = username;
 
 -- Default retrieval config

@@ -128,6 +128,8 @@ class DocumentParser:
 
     async def parse_with_ocr(self, file_path: str) -> list[dict[str, Any]]:
         """Parse scanned PDF using PaddleOCR."""
+        import tempfile
+
         import fitz  # PyMuPDF
         from paddleocr import PaddleOCR
 
@@ -138,7 +140,8 @@ class DocumentParser:
         for i, page in enumerate(doc):
             # Convert page to image
             pix = page.get_pixmap(dpi=300)
-            img_path = f"/tmp/page_{i}.png"
+            with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp:
+                img_path = tmp.name
             pix.save(img_path)
 
             # Run OCR

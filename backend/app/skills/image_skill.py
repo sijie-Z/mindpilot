@@ -1,6 +1,7 @@
 """
 Image understanding skill using VLM.
 """
+import asyncio
 import base64
 
 from zhipuai import ZhipuAI
@@ -38,26 +39,30 @@ class ImageSkill(BaseSkill):
             with open(image_path, "rb") as f:
                 image_base64 = base64.b64encode(f.read()).decode()
 
-            # Use Zhipu GLM-4V for image understanding
+            # Use Zhipu GLM-4V for image understanding (run sync call in thread pool)
             client = ZhipuAI(api_key=settings.ZHIPU_API_KEY)
+            loop = asyncio.get_running_loop()
 
-            response = client.chat.completions.create(
-                model="glm-4v-plus",
-                messages=[{
-                    "role": "user",
-                    "content": [
-                        {
-                            "type": "image_url",
-                            "image_url": {
-                                "url": f"data:image/png;base64,{image_base64}"
+            response = await loop.run_in_executor(
+                None,
+                lambda: client.chat.completions.create(
+                    model="glm-4v-plus",
+                    messages=[{
+                        "role": "user",
+                        "content": [
+                            {
+                                "type": "image_url",
+                                "image_url": {
+                                    "url": f"data:image/png;base64,{image_base64}"
+                                }
+                            },
+                            {
+                                "type": "text",
+                                "text": query
                             }
-                        },
-                        {
-                            "type": "text",
-                            "text": query
-                        }
-                    ]
-                }]
+                        ]
+                    }]
+                ),
             )
 
             answer = response.choices[0].message.content

@@ -27,7 +27,9 @@ class AuthHandler:
     """Handles JWT and API Key authentication."""
 
     def __init__(self):
-        self.secret_key = settings.SECRET_KEY or "mindpilot-secret-change-me"
+        if not settings.SECRET_KEY:
+            raise RuntimeError("SECRET_KEY must be set. Generate one with: python -c 'import secrets; print(secrets.token_urlsafe(64))'")
+        self.secret_key = settings.SECRET_KEY
         self.algorithm = "HS256"
         self.access_token_expire_minutes = 60 * 24  # 24 hours
 
@@ -38,10 +40,11 @@ class AuthHandler:
     ) -> str:
         """Create a JWT access token."""
         to_encode = data.copy()
+        from datetime import UTC
         if expires_delta:
-            expire = datetime.utcnow() + expires_delta
+            expire = datetime.now(UTC) + expires_delta
         else:
-            expire = datetime.utcnow() + timedelta(minutes=self.access_token_expire_minutes)
+            expire = datetime.now(UTC) + timedelta(minutes=self.access_token_expire_minutes)
         to_encode.update({"exp": expire})
         encoded_jwt = jwt.encode(to_encode, self.secret_key, algorithm=self.algorithm)
         return encoded_jwt

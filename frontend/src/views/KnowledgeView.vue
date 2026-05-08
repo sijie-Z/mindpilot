@@ -110,7 +110,7 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import api from '@/api/index'
 
 interface KnowledgeBase { id: string; name: string; description?: string; doc_count?: number; chunk_count?: number }
@@ -154,10 +154,17 @@ async function handleCreate() {
 
 async function handleDelete(id: string) {
   try {
+    await ElMessageBox.confirm('确定要删除此知识库吗？所有相关文档和片段将被永久删除。', '确认删除', {
+      confirmButtonText: '删除',
+      cancelButtonText: '取消',
+      type: 'warning',
+    })
     await api.delete(`/knowledge/${id}`)
     knowledgeBases.value = knowledgeBases.value.filter(k => k.id !== id)
     ElMessage.success('已删除')
-  } catch { ElMessage.error('删除失败') }
+  } catch (err: unknown) {
+    if (err !== 'cancel') ElMessage.error('删除失败')
+  }
 }
 </script>
 

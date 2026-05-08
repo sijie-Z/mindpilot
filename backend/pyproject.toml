@@ -57,7 +57,6 @@ omit = [
     "app/core/observability.py",
     "app/core/metrics.py",
     "app/core/rate_limit.py",
-    "app/core/schemas.py",
     "app/utils/mcp.py",
 ]
 

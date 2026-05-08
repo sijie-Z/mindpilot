@@ -4,12 +4,13 @@ Ensures atomicity: MySQL first, Milvus second, rollback on failure.
 """
 import asyncio
 import json
-import logging
 from typing import Any
 
 from sqlalchemy import text
 
-logger = logging.getLogger(__name__)
+from app.core.logger import get_logger
+
+logger = get_logger(__name__)
 
 
 class DataConsistencyManager:

@@ -3,20 +3,20 @@ Image processing API for multimodal understanding.
 Supports image upload, OCR, vision understanding, and image description.
 """
 import base64
-import logging
 import os
 import uuid
-from datetime import datetime
+from datetime import UTC, datetime
 
 import aiofiles
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from pydantic import BaseModel
 
 from app.auth import TokenData, get_optional_user
+from app.core.logger import get_logger
 from app.multimodal.ocr import ocr_processor
 from app.multimodal.vision import vision_processor
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 router = APIRouter()
 
@@ -71,13 +71,17 @@ async def upload_image(
             f"Unsupported image type: {ext}. Allowed: {allowed_extensions}"
         )
 
+    # Check file size (max 20MB for images)
+    content = await file.read()
+    if len(content) > 20 * 1024 * 1024:
+        raise HTTPException(413, "Image too large. Maximum size is 20MB")
+
     # Generate image ID
     image_id = str(uuid.uuid4())
     file_path = os.path.join(UPLOAD_DIR, f"{image_id}{ext}")
 
     # Save file
     async with aiofiles.open(file_path, "wb") as f:
-        content = await file.read()
         await f.write(content)
 
     file_size = len(content)
@@ -182,7 +186,7 @@ async def extract_text_from_image(
 
     except Exception as e:
         logger.error(f"OCR failed: {e}")
-        raise HTTPException(500, f"OCR processing failed: {e}")
+        raise HTTPException(500, "OCR processing failed")
 
 
 @router.post("/ocr/{image_id}", response_model=OCRResponse)
@@ -222,7 +226,7 @@ async def ocr_by_id(
         )
 
     except Exception as e:
-        raise HTTPException(500, f"OCR processing failed: {e}")
+        raise HTTPException(500, "OCR processing failed")
 
 
 # === Vision Understanding (GLM-4V) ===

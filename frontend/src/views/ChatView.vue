@@ -120,6 +120,20 @@
                 </div>
               </div>
             </div>
+
+            <!-- Branch button for assistant messages -->
+            <div v-if="msg.role === 'assistant' && msg.type === 'text'" class="msg-actions">
+              <button
+                class="action-btn branch-btn"
+                @click="handleBranchClick(msg.id)"
+                title="从此处分叉对话"
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <line x1="6" y1="3" x2="6" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/>
+                </svg>
+                <span>分叉</span>
+              </button>
+            </div>
           </div>
         </div>
       </div>
@@ -134,6 +148,18 @@
     <div class="input-area">
       <div class="input-container">
         <div class="input-tools">
+          <button class="tool-btn" @click="showSearchModal = true" title="搜索历史对话">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/>
+            </svg>
+            <span>搜索</span>
+          </button>
+          <button class="tool-btn" @click="showBranchPanel = !showBranchPanel; loadBranches()" title="对话分支">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <line x1="6" y1="3" x2="6" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/>
+            </svg>
+            <span>分支</span>
+          </button>
           <button class="tool-btn" @click="showKnowledgePicker = true" title="选择知识库">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/>
@@ -245,14 +271,74 @@
         </div>
       </div>
     </div>
+
+    <!-- Conversation Search Modal -->
+    <div v-if="showSearchModal" class="modal" @click.self="showSearchModal = false">
+      <div class="modal-panel">
+        <div class="modal-header">
+          <h3>搜索历史对话</h3>
+          <button class="modal-close" @click="showSearchModal = false">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+            </svg>
+          </button>
+        </div>
+        <div class="modal-body">
+          <div class="search-input-wrapper">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/>
+            </svg>
+            <input
+              v-model="searchQuery"
+              type="text"
+              placeholder="搜索对话内容..."
+              class="search-input"
+              @keydown.enter="performSearch"
+            />
+          </div>
+          <div v-if="searchLoading" class="search-loading">搜索中...</div>
+          <div v-else-if="searchResults.length > 0" class="search-results">
+            <div
+              v-for="result in searchResults"
+              :key="result.id"
+              class="search-result-item"
+              @click="goToSession(result.session_id)"
+            >
+              <div class="search-result-session">会话 {{ result.session_id?.slice(0, 8) }}...</div>
+              <div class="search-result-content">{{ result.content }}</div>
+              <div class="search-result-time">{{ formatTime(new Date(result.created_at).getTime()) }}</div>
+            </div>
+          </div>
+          <div v-else-if="searchQuery && !searchLoading" class="search-empty">
+            未找到匹配的对话内容
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Branch Panel -->
+    <div v-if="showBranchPanel" class="branch-panel-overlay" @click.self="showBranchPanel = false">
+      <BranchTree
+        :branches="branches"
+        :main-branch="{ message_count: branchMessageCount }"
+        :current-branch-id="currentBranchId"
+        :can-create-branch="chatStore.messages.length > 0"
+        @switch="switchBranch"
+        @create="createBranchFromLastMessage"
+        @delete="deleteBranch"
+        @close="showBranchPanel = false"
+      />
+    </div>
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref, computed, onMounted, nextTick, watch } from 'vue'
 import { useRoute } from 'vue-router'
-import { marked } from 'marked'
+import { renderMarkdown } from '@/utils/markdown'
 import { useChatStore } from '@/stores/chat'
+import { branchesApi, type Branch } from '@/api/branches'
+import BranchTree from '@/components/BranchTree.vue'
 import api from '@/api/index'
 
 const route = useRoute()
@@ -265,12 +351,23 @@ const imageInput = ref<HTMLInputElement>()
 
 const showKnowledgePicker = ref(false)
 const showModelPicker = ref(false)
+const showSearchModal = ref(false)
+const showBranchPanel = ref(false)
+const searchQuery = ref('')
+const searchResults = ref<any[]>([])
+const searchLoading = ref(false)
 const knowledgeBases = ref<any[]>([])
 const selectedKnowledge = ref<any>(null)
 const currentModel = ref('glm-4-flash')
 const expandedSources = ref(new Set<string>())
 const selectedImageBase64 = ref<string | null>(null)
 const selectedImageName = ref<string>('')
+
+// Branch state
+const branches = ref<Branch[]>([])
+const currentBranchId = ref<string | null>(null)
+const selectedMessageId = ref<string | null>(null)
+const branchMessageCount = ref(0)
 
 const models = [
   { id: 'glm-4-flash', label: 'GLM-4-Flash', desc: '快速响应，适合日常对话' },
@@ -367,6 +464,25 @@ function selectModel(id: string) {
   showModelPicker.value = false
 }
 
+async function performSearch() {
+  const q = searchQuery.value.trim()
+  if (!q) return
+  searchLoading.value = true
+  try {
+    const res = await api.get('/chat/search', { params: { q, limit: 20 } })
+    searchResults.value = res.data?.results || []
+  } catch {
+    searchResults.value = []
+  } finally {
+    searchLoading.value = false
+  }
+}
+
+function goToSession(sessionId: string) {
+  showSearchModal.value = false
+  chatStore.loadSession(sessionId)
+}
+
 function toggleSources(msgId: string) {
   if (expandedSources.value.has(msgId)) {
     expandedSources.value.delete(msgId)
@@ -395,8 +511,89 @@ function formatTime(ts: number) {
 }
 
 function formatMarkdown(text: string) {
-  if (!text) return ''
-  return marked.parse(text) as string
+  return renderMarkdown(text)
+}
+
+// ── Branch functions ──
+
+async function loadBranches() {
+  if (!chatStore.currentSessionId) return
+  try {
+    const response = await branchesApi.list(chatStore.currentSessionId)
+    branches.value = response.branches || []
+    branchMessageCount.value = response.main_branch?.message_count || 0
+  } catch {
+    branches.value = []
+  }
+}
+
+async function createBranch(messageId: string) {
+  if (!chatStore.currentSessionId) return
+  selectedMessageId.value = messageId
+  try {
+    const branch = await branchesApi.create(
+      chatStore.currentSessionId,
+      messageId,
+      `分支 ${new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}`
+    )
+    branches.value.unshift(branch)
+    await switchBranch(branch.id)
+  } catch (error) {
+    console.error('Failed to create branch:', error)
+  }
+}
+
+async function switchBranch(branchId: string | null) {
+  if (!chatStore.currentSessionId) return
+
+  currentBranchId.value = branchId
+  showBranchPanel.value = false
+
+  if (branchId) {
+    try {
+      const response = await branchesApi.get(branchId)
+      // Load branch messages into chat store
+      chatStore.messages = response.messages.map((m: any, i: number) => ({
+        id: m.id || `${branchId}-${i}`,
+        role: m.role,
+        type: 'text' as const,
+        content: m.content,
+        sources: m.metadata?.sources || [],
+        timestamp: new Date(m.created_at).getTime(),
+      }))
+    } catch (error) {
+      console.error('Failed to switch branch:', error)
+    }
+  } else {
+    // Switch back to main branch
+    await chatStore.loadSession(chatStore.currentSessionId)
+  }
+}
+
+async function deleteBranch(branchId: string) {
+  try {
+    await branchesApi.delete(branchId)
+    branches.value = branches.value.filter(b => b.id !== branchId)
+    if (currentBranchId.value === branchId) {
+      await switchBranch(null)
+    }
+  } catch (error) {
+    console.error('Failed to delete branch:', error)
+  }
+}
+
+function createBranchFromLastMessage() {
+  const lastAssistantMsg = [...chatStore.messages]
+    .reverse()
+    .find(m => m.role === 'assistant' && m.type === 'text')
+
+  if (lastAssistantMsg) {
+    createBranch(lastAssistantMsg.id)
+  }
+}
+
+function handleBranchClick(messageId: string) {
+  createBranch(messageId)
 }
 </script>
 
@@ -687,6 +884,41 @@ function formatMarkdown(text: string) {
   font-weight: var(--font-medium);
 }
 
+/* Message actions */
+.msg-actions {
+  display: flex;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
+  opacity: 0;
+  transition: opacity var(--transition-fast);
+}
+.message-row:hover .msg-actions {
+  opacity: 1;
+}
+.action-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: var(--space-1) var(--space-2);
+  background: var(--color-bg-secondary);
+  border: 1px solid var(--color-border-light);
+  border-radius: var(--radius-sm);
+  color: var(--color-text-secondary);
+  font-size: var(--text-xs);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+.action-btn:hover {
+  background: var(--color-primary-light);
+  border-color: var(--color-primary);
+  color: var(--color-primary);
+}
+.branch-btn:hover {
+  background: #f0fdf4;
+  border-color: #86efac;
+  color: #16a34a;
+}
+
 /* Loading bar */
 .loading-bar {
   max-width: 820px;
@@ -934,5 +1166,97 @@ function formatMarkdown(text: string) {
   font-size: var(--text-xs);
   color: var(--color-text-tertiary);
   margin-top: 2px;
+}
+
+/* ── Search ── */
+.search-input-wrapper {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  margin-bottom: var(--space-4);
+}
+.search-input-wrapper svg { color: var(--color-text-tertiary); flex-shrink: 0; }
+.search-input {
+  flex: 1;
+  border: none;
+  outline: none;
+  background: transparent;
+  font-size: var(--text-sm);
+  color: var(--color-text);
+  font-family: var(--font-sans);
+}
+.search-input::placeholder { color: var(--color-text-tertiary); }
+
+.search-loading {
+  text-align: center;
+  padding: var(--space-6);
+  color: var(--color-text-secondary);
+  font-size: var(--text-sm);
+}
+.search-results {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+.search-result-item {
+  padding: var(--space-3);
+  background: var(--color-bg-secondary);
+  border: 1px solid var(--color-border-light);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+.search-result-item:hover {
+  border-color: var(--color-primary);
+  background: var(--color-primary-light);
+}
+.search-result-session {
+  font-size: var(--text-xs);
+  color: var(--color-primary);
+  font-weight: var(--font-medium);
+  margin-bottom: var(--space-1);
+}
+.search-result-content {
+  font-size: var(--text-sm);
+  color: var(--color-text);
+  line-height: var(--leading-normal);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.search-result-time {
+  font-size: var(--text-xs);
+  color: var(--color-text-tertiary);
+  margin-top: var(--space-1);
+}
+.search-empty {
+  text-align: center;
+  padding: var(--space-6);
+  color: var(--color-text-tertiary);
+  font-size: var(--text-sm);
+}
+
+/* ── Branch Panel ── */
+.branch-panel-overlay {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 320px;
+  background: rgba(0, 0, 0, 0.1);
+  display: flex;
+  align-items: flex-start;
+  justify-content: flex-end;
+  padding: 80px 20px 20px;
+  z-index: 100;
+}
+
+.branch-panel-overlay :deep(.branch-tree) {
+  max-height: calc(100vh - 120px);
 }
 </style>

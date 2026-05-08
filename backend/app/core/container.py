@@ -126,16 +126,7 @@ class AppContainer:
     @property
     def skill_registry(self):
         if self._skill_registry is None:
-            from app.skills.calc_skill import calc_skill
-            from app.skills.image_skill import image_skill
-            from app.skills.rag_skill import rag_skill
-            from app.skills.registry import SkillRegistry
-            from app.skills.search_skill import search_skill
-            registry = SkillRegistry()
-            registry.register(search_skill)
-            registry.register(rag_skill)
-            registry.register(calc_skill)
-            registry.register(image_skill)
+            from app.skills.registry import registry
             self._skill_registry = registry
         return self._skill_registry
 

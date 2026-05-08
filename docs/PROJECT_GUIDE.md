@@ -7,8 +7,12 @@
 ### 核心能力
 - 多格式文档解析：PDF / Word / PPT，支持扫描件 OCR
 - 多模态理解：图片问答、截图解析、架构图分析
-- 精准检索：语义 + 关键词混合检索，自动重排序
-- 多Agent协作：意图识别 → 检索 → 生成 → 评估，全链路编排
+- 精准检索：语义 + 关键词混合检索，RRF 融合 + Rerank 重排序
+- 多Agent协作：LangGraph 状态机，意图识别 → 检索 → 生成 → RAGAS 评估
+- Skill 自动注册：目录扫描自动发现 + 意图路由 + 遥测追踪
+- 错误分类恢复：ErrorClassifier 结构化分类 + 恢复提示
+- 上下文管理：可插拔 ContextEngine + StreamScrubber 防泄漏
+- Prompt 注入防护：检索文档注入扫描 + 编码伪装检测
 - 多端接入：网页对话 + QQ机器人 + 飞书机器人
 
 ---
@@ -42,7 +46,7 @@ MYSQL_PASSWORD=your-password          # MySQL密码
 # === 数据库连接 ===
 MYSQL_HOST=localhost
 MYSQL_PORT=3306
-MYSQL_USER=root
+MYSQL_USER=mindpilot
 MYSQL_DATABASE=mindpilot
 
 # === Redis ===
@@ -54,8 +58,7 @@ MILVUS_HOST=localhost
 MILVUS_PORT=19530
 
 # === 安全 ===
-SECRET_KEY=your-secret-key-change-this
-API_KEY=your-api-key
+SECRET_KEY=generate-with-python-c-import-secrets-print-secrets-token-urlsafe-64
 ```
 
 ### 2.3 启动方式
@@ -68,14 +71,17 @@ docker-compose up -d
 ```
 
 **服务端口映射：**
+
+> 仅 Nginx (80) 对外暴露，其余服务均在 Docker 内部网络中。
+
 | 服务 | 容器端口 | 宿主机端口 |
 |------|----------|------------|
-| 后端 API | 8000 | 8002 |
-| 前端 | 80 | 3000 |
 | Nginx | 80 | 80 |
-| MySQL | 3306 | 3308 |
-| Redis | 6379 | 6379 |
-| Milvus | 19530 | 19530 |
+| 后端 API | 8000 | (内部) |
+| 前端 | 80 | (内部) |
+| MySQL | 3306 | (内部) |
+| Redis | 6379 | (内部) |
+| Milvus | 19530 | (内部) |
 
 #### 方式二：本地开发（前后端分离）
 
@@ -96,7 +102,7 @@ source venv/bin/activate
 pip install -r requirements.txt
 
 # 3. 启动服务
-uvicorn app.main:app --host 0.0.0.0 --port 8002 --reload
+uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 ```
 
 **前端启动：**
@@ -110,19 +116,19 @@ npm install
 npm run dev
 ```
 
-前端会在 http://localhost:3000 启动，自动代理 `/api` 请求到后端 8002 端口。
+前端会在 http://localhost:5173 启动，自动代理 `/api` 请求到后端 8000 端口。
 
 ### 2.4 验证服务
 
 ```bash
 # 检查后端健康
-curl http://localhost:8002/health
+curl http://localhost:8000/health
 
 # 查看 API 文档
-浏览器打开 http://localhost:8002/docs
+浏览器打开 http://localhost:8000/docs
 
 # 访问前端
-浏览器打开 http://localhost:3000
+浏览器打开 http://localhost:5173
 ```
 
 ### 2.5 常见问题
@@ -131,7 +137,7 @@ curl http://localhost:8002/health
 |------|----------|
 | MySQL 连接失败 | 检查 MYSQL_HOST/PORT/PASSWORD 是否正确 |
 | Milvus 连接超时 | 确保 etcd 和 minio 先启动（Docker 方式会自动处理） |
-| 前端代理 404 | 确认后端在 8002 端口运行 |
+| 前端代理 404 | 确认后端在 8000 端口运行 |
 | ZHIPU API 报错 | 检查 API Key 是否有效，账户余额是否充足 |
 | Redis 连接失败 | 检查 Redis 服务是否启动，端口是否正确 |
 
@@ -174,7 +180,7 @@ HOST=127.0.0.1
 PORT=8080
 
 # 后端 API 地址
-API_BASE_URL=http://127.0.0.1:8002
+API_BASE_URL=http://127.0.0.1:8000
 
 # 智谱 API Key
 ZHIPU_API_KEY=your-zhipu-api-key
@@ -251,7 +257,7 @@ python bot.py
                       │ HTTP API
                       ▼
 ┌─────────────────────────────────────────────────────┐
-│           MindPilot Backend (Port 8002)             │
+│           MindPilot Backend (Port 8000)             │
 │                                                     │
 │  RAG Pipeline + LangGraph Agents                    │
 └─────────────────────────────────────────────────────┘
@@ -270,9 +276,14 @@ MindPilot - 多模态智能知识检索平台
 核心能力：
 • RAG全链路：文档解析→切片→向量化→混合检索→Rerank→Self-RAG校验
 • 多Agent编排：LangGraph状态机实现意图识别→检索→生成→评估的协作流程
+• Skill自动注册：目录扫描自动发现+意图路由+遥测追踪（参考Hermes Agent）
+• 错误分类恢复：ErrorClassifier结构化分类+恢复提示（重试/压缩/降级）
+• 上下文管理：可插拔ContextEngine+StreamScrubber防泄漏+MemoryManager
+• Prompt注入防护：检索文档注入扫描+编码伪装检测
 • 多模态理解：PaddleOCR扫描件识别 + GLM-4V图片问答
 • 数据一致性：MySQL+Milvus双写回滚机制
 • SSE流式响应：Nginx proxy_buffering off优化，状态实时回传
+• 会话全文搜索：MySQL FULLTEXT + ngram中文分词，跨会话历史检索
 • 多端接入：Vue网页 + QQ机器人(NoneBot2) + 飞书WebHook
 ```
 
@@ -336,6 +347,42 @@ Eval Agent（RAGAS评估）
 > - **知识库切换**：/kb命令让用户选择不同的知识库进行问答
 > - **权限控制**：SUPERUSERS配置管理员，管理员有额外的管理命令
 
+#### Q7: Skill系统是怎么设计的？
+
+**回答要点：**
+> 借鉴了 Hermes Agent 的自动注册模式，核心是三个设计：
+> 1. **自动发现**：扫描 skills/ 目录，自动注册所有 BaseSkill 子类，新增 Skill 零配置
+> 2. **意图路由**：通过 INTENT_SKILL_MAP 映射意图到 Skill，Agent 无需硬编码
+> 3. **遥测追踪**：每次执行自动记录调用次数、延迟、成功率，数据通过 fire-and-forget 异步写入数据库
+>
+> 这样做的好处是：新 Skill 只需放一个 .py 文件到目录里就自动生效，不需要改任何导入列表或配置。
+
+#### Q8: 会话历史搜索是怎么实现的？
+
+**回答要点：**
+> 用 MySQL 的 FULLTEXT 索引 + ngram 分词器实现中文全文搜索。
+> - ngram 解决了 MySQL 默认按空格分词对中文无效的问题
+> - 搜索时 JOIN sessions 表过滤用户权限
+> - 返回匹配的消息内容 + 所属会话 ID，支持跨会话检索
+
+#### Q9: 错误处理是怎么设计的？
+
+**回答要点：**
+> 参考 Hermes Agent 的 ErrorClassifier 模式：
+> 1. **结构化分类**：用 FailoverReason 枚举（auth, rate_limit, context_overflow, timeout 等）
+> 2. **恢复提示**：每个分类带 actionable hints（retryable, should_compress, should_fallback, should_rotate_credential）
+> 3. **去相关抖动**：用 time.time_ns() XOR 单调计数器做退避，防止并发请求的惊群效应
+>
+> 好处是：错误处理逻辑集中在一个地方，新增错误类型只需加一条规则。
+
+#### Q10: 怎么防止 Prompt 注入？
+
+**回答要点：**
+> 三层防护：
+> 1. **检索文档扫描**：InjectionScanner 在检索结果送入 LLM 前检测注入模式（直接覆盖、角色操纵、数据窃取）
+> 2. **编码伪装检测**：检测零宽度字符、Cyrillic/Latin 混淆、base64 编码的注入
+> 3. **SSE 流式清洗**：StreamScrubber 是状态机，防止系统提示和内部 ID 泄漏到用户看到的流式输出
+
 ### 4.3 技术深度问题
 
 | 领域 | 可能追问 | 准备要点 |
@@ -343,6 +390,12 @@ Eval Agent（RAGAS评估）
 | 向量检索 | Milvus索引类型 | IVF_FLAT、HNSW的区别、召回率vs延迟权衡 |
 | LLM | 为什么选智谱而非OpenAI | 国内合规、glm-4-flash性价比高、embedding-3维度2048够用 |
 | Agent | LangGraph vs LangChain | LangGraph状态机更适合复杂流程，LangChain更偏工具链 |
+| Skill系统 | 自动注册怎么实现 | 目录扫描+importlib动态导入+isinstance检测，零配置新增Skill |
+| 遥测 | 遥测数据怎么存 | 内存追踪+fire-and-forget异步写DB，不影响执行延迟 |
+| 全文搜索 | 中文分词怎么解决 | MySQL ngram分词器，2-gram切词，FULLTEXT索引 |
+| 错误处理 | 怎么分类错误 | ErrorClassifier + FailoverReason枚举 + 恢复提示 |
+| 安全 | 怎么防注入 | InjectionScanner扫描检索文档 + StreamScrubber清洗SSE流 |
+| 上下文 | 对话太长怎么办 | ContextEngine生命周期钩子 + 压缩策略（保护头尾） |
 | 工程化 | 并发怎么处理 | FastAPI异步、Redis缓存、连接池 |
 | QQ机器人 | NoneBot2架构 | Driver → Adapter → Matcher → Handler 的流程 |
 
@@ -355,14 +408,16 @@ Eval Agent（RAGAS评估）
 > 1. **检索精准度**：混合检索 + Rerank + Self-RAG三层保障，Top-5准确率从60%提升到85%
 > 2. **用户体验**：SSE实时状态回传，用户知道系统在做什么，不会觉得卡住
 > 3. **工程健壮性**：MySQL+Milvus双写回滚，数据不会出现半边写入的情况
-> 4. **多端覆盖**：网页、QQ、飞书三端共用一套后端API，降低维护成本
+> 4. **Agent 设计**：参考Hermes Agent，错误分类+上下文管理+注入防护+记忆管理，企业级Agent架构
+> 5. **安全纵深**：bcrypt+JWT+DOMPurify+Milvus注入防护+Prompt注入扫描+SSE上下文清洗
+> 6. **多端覆盖**：网页、QQ、飞书三端共用一套后端API，降低维护成本
 
 ### 4.5 架构图口述版
 
 > 系统分三层：
 > - **交互层**：Vue网页、QQ机器人(NoneBot2)、飞书机器人，都对接同一个后端API
-> - **业务层**：FastAPI处理请求，LangGraph编排Agent流程，包括意图识别、检索、生成、评估四个阶段
-> - **数据层**：MySQL存原文和元数据，Milvus存向量，Redis做缓存和会话状态
+> - **业务层**：FastAPI处理请求，LangGraph编排Agent流程，包括意图识别、检索、生成、评估四个阶段。Skill系统采用自动注册模式，目录扫描+意图路由+遥测追踪
+> - **数据层**：MySQL存原文和元数据（含ngram全文索引支持中文搜索），Milvus存向量，Redis做缓存和会话状态
 
 ---
 
@@ -379,7 +434,7 @@ docker-compose up -d mysql redis milvus etcd minio
 cd mindpilot/backend
 python -m venv venv && venv\Scripts\activate
 pip install -r requirements.txt
-uvicorn app.main:app --host 0.0.0.0 --port 8002 --reload
+uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 
 # 3. 启动前端（新终端）
 cd mindpilot/frontend
@@ -396,12 +451,27 @@ python bot.py
 
 | 服务 | 地址 |
 |------|------|
-| 前端页面 | http://localhost:3000 |
-| 后端 API | http://localhost:8002 |
-| API 文档 | http://localhost:8002/docs |
-| 健康检查 | http://localhost:8002/health |
+| 前端页面 | http://localhost:5173 |
+| 后端 API | http://localhost:8000 |
+| API 文档 | http://localhost:8000/docs |
+| 健康检查 | http://localhost:8000/health |
+
+### 运行测试
+
+```bash
+# 后端测试
+cd mindpilot/backend
+pytest tests/ -v -m "not integration"  # 单元测试
+pytest tests/ -v --cov=app             # 覆盖率
+
+# 前端测试
+cd mindpilot/frontend
+npm test                               # 运行测试
+npm run test:watch                     # 监听模式
+npm run test:coverage                  # 覆盖率报告
+```
 
 ---
 
-*文档版本：v1.0*
-*更新时间：2026-04-27*
+*文档版本：v3.0*
+*更新时间：2026-05-08*

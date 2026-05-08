@@ -2,12 +2,12 @@
 Hybrid retriever supporting both Milvus and FAISS.
 Dynamic weight adjustment for vector + BM25 hybrid search.
 """
-import logging
 from typing import Any
 
 from app.config import settings
+from app.core.logger import get_logger
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 def get_vector_store():

@@ -2,7 +2,7 @@
 Intent recognition agent — determines what the user wants and routes accordingly.
 Uses keyword pre-filtering + optional LLM refinement for edge cases.
 """
-from datetime import datetime
+from datetime import UTC, datetime
 
 from app.agents.state import AgentState
 from app.core.llm_client import AsyncLLMClient
@@ -34,6 +34,12 @@ INTENTS = {
         "name": "代码执行",
         "description": "用户询问或要求编写代码",
         "keywords": ["代码", "函数", "python", "写", "编程", "代码片段", "bug", "debug"],
+        "needs_retrieval": False,
+    },
+    "analysis": {
+        "name": "数据分析",
+        "description": "用户需要分析数据、计算统计指标",
+        "keywords": ["分析", "统计", "均值", "平均", "csv", "json", "数据", "图表"],
         "needs_retrieval": False,
     },
     "general": {
@@ -87,7 +93,7 @@ async def intent_node(state: AgentState, llm: AsyncLLMClient | None = None) -> A
                         f"判断用户意图，只返回JSON。\n"
                         f"用户问题：「{query}」\n"
                         f'选项：doc_qa(文档问答) / search(网络搜索) / calculation(计算) '
-                        f'/ code(编程) / general(通用)\n'
+                        f'/ code(编程) / analysis(数据分析) / general(通用)\n'
                         f'格式：{{"intent": "...", "reason": "..."}}'
                     ),
                 }],
@@ -107,7 +113,7 @@ async def intent_node(state: AgentState, llm: AsyncLLMClient | None = None) -> A
         "intent": detected_intent,
         "intent_confidence": confidence,
         "status": "thinking",
-        "created_at": datetime.now(),
+        "created_at": datetime.now(UTC),
         "iterations": state.get("iterations", 0) + 1,
         "retrieval_attempts": 0,
         "quality_passed": True,

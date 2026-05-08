@@ -5,40 +5,12 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { knowledgeApi, documentApi } from '@/api/knowledge'
+import type { KnowledgeBase, Document, RetrievalConfig } from '@/api/types'
 
-export interface KnowledgeBase {
-  id: string
-  name: string
-  description: string
-  status: 'active' | 'inactive' | 'processing' | 'error'
-  embedding_model: string
-  chunk_strategy: string
-  chunk_size: number
-  chunk_overlap: number
-  document_count: number
-  chunk_count: number
-  created_at: string
-  updated_at?: string
-}
+export type { KnowledgeBase, Document, RetrievalConfig }
 
-export interface Document {
-  id: string
-  name: string
-  knowledge_base_id: string
-  category: string
-  status: 'pending' | 'processing' | 'completed' | 'failed'
-  size_bytes: number
-  chunk_count: number
-  created_at: string
-  processed_at?: string
-  error_message?: string
-}
-
-export interface RetrievalConfig {
-  vector_weight: number
-  bm25_weight: number
-  top_k: number
-  rerank_enabled: boolean
+function errorMessage(err: unknown, fallback: string): string {
+  return err instanceof Error ? err.message : fallback
 }
 
 export const useKnowledgeStore = defineStore('knowledge', () => {
@@ -75,8 +47,8 @@ export const useKnowledgeStore = defineStore('knowledge', () => {
     try {
       const response = await knowledgeApi.list()
       knowledgeBases.value = response.items || []
-    } catch (err: any) {
-      error.value = err.message || 'Failed to fetch knowledge bases'
+    } catch (err: unknown) {
+      error.value = errorMessage(err, 'Failed to fetch knowledge bases')
       console.error('Failed to fetch knowledge bases:', err)
     } finally {
       loading.value = false
@@ -91,8 +63,8 @@ export const useKnowledgeStore = defineStore('knowledge', () => {
       const kb = await knowledgeApi.get(id)
       currentKnowledge.value = kb
       return kb
-    } catch (err: any) {
-      error.value = err.message || 'Failed to fetch knowledge base'
+    } catch (err: unknown) {
+      error.value = errorMessage(err, 'Failed to fetch knowledge base')
       console.error('Failed to fetch knowledge base:', err)
       return null
     } finally {
@@ -108,8 +80,8 @@ export const useKnowledgeStore = defineStore('knowledge', () => {
       const kb = await knowledgeApi.create(data)
       knowledgeBases.value.unshift(kb)
       return kb
-    } catch (err: any) {
-      error.value = err.message || 'Failed to create knowledge base'
+    } catch (err: unknown) {
+      error.value = errorMessage(err, 'Failed to create knowledge base')
       console.error('Failed to create knowledge base:', err)
       return null
     } finally {
@@ -131,8 +103,8 @@ export const useKnowledgeStore = defineStore('knowledge', () => {
         currentKnowledge.value = kb
       }
       return true
-    } catch (err: any) {
-      error.value = err.message || 'Failed to update knowledge base'
+    } catch (err: unknown) {
+      error.value = errorMessage(err, 'Failed to update knowledge base')
       console.error('Failed to update knowledge base:', err)
       return false
     } finally {
@@ -152,8 +124,8 @@ export const useKnowledgeStore = defineStore('knowledge', () => {
         documents.value = []
       }
       return true
-    } catch (err: any) {
-      error.value = err.message || 'Failed to delete knowledge base'
+    } catch (err: unknown) {
+      error.value = errorMessage(err, 'Failed to delete knowledge base')
       console.error('Failed to delete knowledge base:', err)
       return false
     } finally {
@@ -168,8 +140,8 @@ export const useKnowledgeStore = defineStore('knowledge', () => {
     try {
       const response = await documentApi.list(knowledgeBaseId)
       documents.value = response.items || []
-    } catch (err: any) {
-      error.value = err.message || 'Failed to fetch documents'
+    } catch (err: unknown) {
+      error.value = errorMessage(err, 'Failed to fetch documents')
       console.error('Failed to fetch documents:', err)
     } finally {
       loading.value = false
@@ -189,8 +161,8 @@ export const useKnowledgeStore = defineStore('knowledge', () => {
         knowledgeBases.value[kbIndex].document_count++
       }
       return doc
-    } catch (err: any) {
-      error.value = err.message || 'Failed to upload document'
+    } catch (err: unknown) {
+      error.value = errorMessage(err, 'Failed to upload document')
       console.error('Failed to upload document:', err)
       return null
     } finally {
@@ -211,8 +183,8 @@ export const useKnowledgeStore = defineStore('knowledge', () => {
         knowledgeBases.value[kbIndex].document_count--
       }
       return true
-    } catch (err: any) {
-      error.value = err.message || 'Failed to delete document'
+    } catch (err: unknown) {
+      error.value = errorMessage(err, 'Failed to delete document')
       console.error('Failed to delete document:', err)
       return false
     } finally {
@@ -224,7 +196,7 @@ export const useKnowledgeStore = defineStore('knowledge', () => {
     try {
       const config = await knowledgeApi.getRetrievalConfig()
       retrievalConfig.value = config
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.warn('Failed to fetch retrieval config:', err)
     }
   }
@@ -234,8 +206,8 @@ export const useKnowledgeStore = defineStore('knowledge', () => {
       const updated = await knowledgeApi.updateRetrievalConfig(config)
       retrievalConfig.value = updated
       return true
-    } catch (err: any) {
-      error.value = err.message || 'Failed to update retrieval config'
+    } catch (err: unknown) {
+      error.value = errorMessage(err, 'Failed to update retrieval config')
       console.error('Failed to update retrieval config:', err)
       return false
     }

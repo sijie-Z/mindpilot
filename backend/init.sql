@@ -40,6 +40,7 @@ CREATE TABLE IF NOT EXISTS messages (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     INDEX idx_session_id (session_id),
     INDEX idx_created_at (created_at),
+    FULLTEXT INDEX idx_content_ft (content) WITH PARSER ngram,
     FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 

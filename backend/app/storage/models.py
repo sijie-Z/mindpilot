@@ -74,6 +74,22 @@ class Session(Base):
     # Relationships
     user = relationship("User", back_populates="sessions")
     messages = relationship("Message", back_populates="session", cascade="all, delete-orphan")
+    branches = relationship("ConversationBranch", back_populates="session", cascade="all, delete-orphan")
+
+
+class ConversationBranch(Base):
+    """Conversation branch model for exploring different conversation paths."""
+    __tablename__ = "conversation_branches"
+
+    id = Column(String(36), primary_key=True, default=generate_uuid)
+    session_id = Column(String(36), ForeignKey("sessions.id", ondelete="CASCADE"), nullable=False, index=True)
+    parent_message_id = Column(String(36), ForeignKey("messages.id", ondelete="CASCADE"), nullable=False)
+    name = Column(String(100), nullable=True)
+    created_at = Column(DateTime, default=func.now())
+
+    # Relationships
+    session = relationship("Session", back_populates="branches")
+    messages = relationship("Message", back_populates="branch", cascade="all, delete-orphan")
 
 
 class Message(Base):
@@ -85,10 +101,12 @@ class Message(Base):
     role = Column(String(20), nullable=False)  # 'user', 'assistant', 'system'
     content = Column(Text, nullable=False)
     extra_data = Column("metadata", JSON, nullable=True)  # Store sources, tokens, etc.
+    branch_id = Column(String(36), ForeignKey("conversation_branches.id", ondelete="SET NULL"), nullable=True, index=True)
     created_at = Column(DateTime, default=func.now(), index=True)
 
     # Relationships
     session = relationship("Session", back_populates="messages")
+    branch = relationship("ConversationBranch", back_populates="messages")
 
 
 class Knowledge(Base):

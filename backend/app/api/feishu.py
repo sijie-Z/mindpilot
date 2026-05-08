@@ -28,9 +28,10 @@ feishu_config = FeishuConfig()
 
 
 def verify_signature(timestamp: str, nonce: str, body: str, signature: str) -> bool:
-    """Verify Feishu webhook signature."""
+    """Verify Feishu webhook signature. Returns False if ENCRYPT_KEY is not configured."""
     if not feishu_config.ENCRYPT_KEY:
-        return True  # Skip verification if no key configured
+        logger.warning("Feishu ENCRYPT_KEY not configured, rejecting webhook")
+        return False
 
     content = f"{timestamp}{nonce}{feishu_config.ENCRYPT_KEY}{body}"
     expected = hashlib.sha256(content.encode()).hexdigest()

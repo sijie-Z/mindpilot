@@ -4,6 +4,7 @@ Authentication API - login, register, token management.
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException
+from passlib.context import CryptContext
 from pydantic import BaseModel
 from sqlalchemy import text
 
@@ -11,6 +12,18 @@ from app.auth import TokenData, auth_handler, get_current_user
 from app.storage.database import get_db_session
 
 router = APIRouter()
+
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+
+
+def hash_password(password: str) -> str:
+    """Hash password using bcrypt."""
+    return pwd_context.hash(password)
+
+
+def verify_password(password: str, hashed: str) -> bool:
+    """Verify password against bcrypt hash."""
+    return pwd_context.verify(password, hashed)
 
 
 class UserLogin(BaseModel):
@@ -38,15 +51,6 @@ class UserResponse(BaseModel):
     role: str
 
 
-def hash_password(password: str) -> str:
-    """Simple password hashing (use bcrypt in production)."""
-    import hashlib
-    return hashlib.sha256(password.encode()).hexdigest()
-
-
-def verify_password(password: str, hashed: str) -> bool:
-    """Verify password against hash."""
-    return hash_password(password) == hashed
 
 
 @router.post("/login", response_model=TokenResponse)

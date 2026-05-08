@@ -2,6 +2,7 @@
 RAG skill for document-based question answering.
 """
 from app.agents.answer_agent import generate_answer
+from app.core.llm_client import AsyncLLMClient
 from app.rag.retriever import retriever
 from app.skills.base import BaseSkill, SkillResult
 
@@ -39,8 +40,10 @@ class RAGSkill(BaseSkill):
                     metadata={"query": query}
                 )
 
-            # Generate answer
-            answer = await generate_answer(query, docs)
+            # Generate answer (pass llm instance as required by signature)
+            llm = AsyncLLMClient()
+            result = await generate_answer(query, docs, llm)
+            answer = result["answer"]
 
             # Extract sources
             sources = [

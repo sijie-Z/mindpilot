@@ -11,7 +11,7 @@ const router = createRouter({
     { path: '/knowledge/:id', name: 'KnowledgeDetail', component: () => import('@/views/KnowledgeDetailView.vue'), props: true, meta: { requiresAuth: true } },
     { path: '/workflow', name: 'Workflow', component: () => import('@/views/WorkflowView.vue'), meta: { requiresAuth: true } },
     { path: '/admin', name: 'Admin', component: () => import('@/views/AdminView.vue'), meta: { requiresAuth: true } },
-    { path: '/:pathMatch(.*)*', redirect: '/chat' },
+    { path: '/:pathMatch(.*)*', name: 'NotFound', component: () => import('@/views/NotFoundView.vue') },
   ],
 })
 
@@ -20,6 +20,11 @@ router.beforeEach((to, _from, next) => {
   if (to.meta.requiresAuth !== false && !token) next('/login')
   else if (to.path === '/login' && token) next('/chat')
   else next()
+})
+
+// Listen for auth logout events from API interceptor
+window.addEventListener('auth:logout', () => {
+  router.push('/login')
 })
 
 export default router

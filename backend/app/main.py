@@ -10,7 +10,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 
-from app.api import admin, auth, chat, document, feishu, health, image, knowledge, workflow
+from app.api import admin, analytics, auth, branches, chat, document, feishu, health, highlight, image, knowledge, workflow
 from app.config import settings
 
 # Setup structured logging
@@ -50,10 +50,17 @@ class RequestTrackingMiddleware(BaseHTTPMiddleware):
         request_id = str(uuid.uuid4())[:8]
         set_request_id(request_id)
 
-        # Extract user from header if available
-        user_id = request.headers.get("X-User-ID")
-        if user_id:
-            set_user_id(user_id)
+        # Extract user from JWT token if available (do not trust X-User-ID header)
+        try:
+            from app.auth import auth_handler
+            auth_header = request.headers.get("Authorization", "")
+            if auth_header.startswith("Bearer "):
+                token = auth_header[7:]
+                token_data = auth_handler.verify_token(token)
+                if token_data.user_id:
+                    set_user_id(token_data.user_id)
+        except Exception:
+            pass
 
         # Log incoming request
         logger.info(
@@ -230,6 +237,9 @@ app.include_router(workflow.router, prefix="/api/workflow", tags=["Workflow"])
 app.include_router(feishu.router, prefix="/api/feishu", tags=["Feishu Bot"])
 app.include_router(admin.router, prefix="/api/admin", tags=["Admin"])
 app.include_router(image.router, prefix="/api/image", tags=["Image"])
+app.include_router(branches.router, prefix="/api/branches", tags=["Branches"])
+app.include_router(highlight.router, prefix="/api/highlight", tags=["Highlight"])
+app.include_router(analytics.router, prefix="/api/analytics", tags=["Analytics"])
 
 
 # Global exception handlers (fallback for middleware)
