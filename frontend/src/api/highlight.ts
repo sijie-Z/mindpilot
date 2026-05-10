@@ -50,9 +50,8 @@ export const highlightApi = {
     chunks: Array<{ chunk_id: string; content: string; [key: string]: unknown }>,
     topK: number = 3
   ): Promise<HighlightedChunk[]> {
-    const response = await api.post('/highlight/chunks', null, {
+    const response = await api.post('/highlight/chunks', chunks, {
       params: { query, top_k: topK },
-      data: chunks,
     })
     return response.data.chunks
   },

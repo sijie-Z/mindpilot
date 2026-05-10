@@ -10,7 +10,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 
-from app.api import admin, analytics, auth, branches, chat, document, feishu, health, highlight, image, knowledge, workflow
+from app.api import admin, analytics, auth, branches, chat, document, feishu, health, highlight, image, knowledge, templates, workflow
 from app.config import settings
 
 # Setup structured logging
@@ -209,10 +209,12 @@ app.add_middleware(
 )
 
 # Add custom middleware (order matters - last added is first executed)
+# ExceptionHandler outermost → catches exceptions from all inner middleware
+# RateLimitMiddleware innermost → raises exceptions caught by ExceptionHandler
 app.add_middleware(RateLimitMiddleware, config=RateLimitConfig())
 app.add_middleware(MetricsMiddleware)
-app.add_middleware(ExceptionHandlerMiddleware)
 app.add_middleware(RequestTrackingMiddleware)
+app.add_middleware(ExceptionHandlerMiddleware)
 
 
 # Root endpoints
@@ -240,6 +242,7 @@ app.include_router(image.router, prefix="/api/image", tags=["Image"])
 app.include_router(branches.router, prefix="/api/branches", tags=["Branches"])
 app.include_router(highlight.router, prefix="/api/highlight", tags=["Highlight"])
 app.include_router(analytics.router, prefix="/api/analytics", tags=["Analytics"])
+app.include_router(templates.router, prefix="/api/templates", tags=["Templates"])
 
 
 # Global exception handlers (fallback for middleware)

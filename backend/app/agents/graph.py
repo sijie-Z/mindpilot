@@ -173,35 +173,49 @@ def create_agent_graph(checkpointer=None):
     return graph.compile(checkpointer=checkpointer)
 
 
-# ── Node wrappers (share a single LLM client instance) ──
+# ── Node wrappers ──
 
 _llm: AsyncLLMClient | None = None
 
 
-def _get_llm() -> AsyncLLMClient:
+def _get_llm(model: str | None = None) -> AsyncLLMClient:
+    """Get LLM client, optionally configured with a per-request model."""
     global _llm
     if _llm is None:
         _llm = AsyncLLMClient()
+    if model:
+        _llm._model = model
     return _llm
 
 
 async def _intent_wrapper(state: AgentState) -> AgentState:
-    return await intent_node(state, llm=_get_llm())
+    return await intent_node(state, llm=_get_llm(state.get("model")))
 
 
 async def _retrieval_wrapper(state: AgentState) -> AgentState:
-    return await retrieval_node(state, llm=_get_llm())
+    return await retrieval_node(state, llm=_get_llm(state.get("model")))
 
 
 async def _answer_wrapper(state: AgentState) -> AgentState:
-    return await answer_node(state, llm=_get_llm())
+    return await answer_node(state, llm=_get_llm(state.get("model")))
 
 
 async def _eval_wrapper(state: AgentState) -> AgentState:
-    return await eval_node(state, llm=_get_llm())
+    return await eval_node(state, llm=_get_llm(state.get("model")))
 
 
 # ── Public API ──
+
+# Cached compiled graph — avoids recompilation per call
+_compiled_graph = None
+
+
+def _get_compiled_graph():
+    global _compiled_graph
+    if _compiled_graph is None:
+        _compiled_graph = create_agent_graph()
+    return _compiled_graph
+
 
 async def run_agent(state: dict, thread_id: str = "default") -> dict:
     """
@@ -215,7 +229,7 @@ async def run_agent(state: dict, thread_id: str = "default") -> dict:
         Final state dict with answer, sources, evaluation
     """
     start = time.perf_counter()
-    agent_graph = create_agent_graph()
+    agent_graph = _get_compiled_graph()
 
     # Config with thread_id enables checkpoint/memory
     config = {"configurable": {"thread_id": thread_id}}
@@ -256,7 +270,3 @@ def run_agent_sync(state: dict, thread_id: str = "default") -> dict:
             future = executor.submit(asyncio.run, run_agent(state, thread_id))
             return future.result()
     return asyncio.run(run_agent(state, thread_id))
-
-
-# Pre-built graph for module-level import compatibility
-agent_graph = create_agent_graph()

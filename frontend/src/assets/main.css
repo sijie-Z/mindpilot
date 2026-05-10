@@ -56,6 +56,34 @@
   --shadow-md: 0 4px 6px -1px rgba(0,0,0,0.07), 0 2px 4px -2px rgba(0,0,0,0.05);
   --shadow-lg: 0 10px 15px -3px rgba(0,0,0,0.08), 0 4px 6px -4px rgba(0,0,0,0.04);
 
+  /* Semantic states */
+  --color-error-bg: #fef2f2;
+  --color-error-border: #fecaca;
+  --color-success-bg: #e6f9ee;
+  --color-success-border: #86efac;
+  --color-warning-bg: #fef3cd;
+  --color-warning-border: #fbbf24;
+
+  /* Branch colors */
+  --bg-branch: #f0fdf4;
+  --border-branch: #86efac;
+  --bg-branch-hover: #dcfce7;
+  --border-branch-hover: #4ade80;
+  --color-branch: #16a34a;
+  --bg-branched: #eff6ff;
+  --border-branched: #93c5fd;
+  --color-branched: #2563eb;
+
+  /* Component overrides */
+  --bg-primary: #ffffff;
+  --bg-hover: #f3f4f6;
+  --bg-active: #eff6ff;
+  --border-active: #3b82f6;
+  --text-primary: #1f2937;
+  --text-secondary: #6b7280;
+  --color-gray: #9ca3af;
+  --color-danger: #ef4444;
+
   --sidebar-width: 260px;
   --transition-fast: 150ms ease;
   --transition-normal: 200ms ease;
@@ -75,6 +103,35 @@
   --color-text-tertiary: #64748b;
   --color-primary-bg: #0f2b2a;
   --color-primary-light: #134e4a;
+
+  /* Semantic states */
+  --color-error-bg: #451a1a;
+  --color-error-border: #7f1d1d;
+  --color-success-bg: #052e16;
+  --color-success-border: #14532d;
+  --color-warning-bg: #422006;
+  --color-warning-border: #78350f;
+
+  /* Branch colors */
+  --bg-branch: #052e16;
+  --border-branch: #15803d;
+  --bg-branch-hover: #14532d;
+  --border-branch-hover: #22c55e;
+  --color-branch: #4ade80;
+  --bg-branched: #172554;
+  --border-branched: #1d4ed8;
+  --color-branched: #60a5fa;
+
+  /* Component overrides */
+  --bg-primary: #1e293b;
+  --bg-hover: #334155;
+  --bg-active: #172554;
+  --border-active: #3b82f6;
+  --text-primary: #f1f5f9;
+  --text-secondary: #94a3b8;
+  --color-gray: #64748b;
+  --color-danger: #f87171;
+
   --shadow-sm: 0 1px 2px rgba(0,0,0,0.3);
   --shadow-md: 0 4px 6px rgba(0,0,0,0.3);
   --shadow-lg: 0 10px 15px rgba(0,0,0,0.3);

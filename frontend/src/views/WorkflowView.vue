@@ -87,7 +87,7 @@
             </div>
             <div class="result-section">
               <h4>回答</h4>
-              <div class="answer-text" v-html="formatMarkdown(executionResult.answer)"></div>
+              <div class="answer-text" v-html="renderMarkdown(executionResult.answer || '')"></div>
             </div>
             <div v-if="executionResult.sources?.length" class="result-section">
               <h4>来源 ({{ executionResult.sources.length }})</h4>
@@ -183,6 +183,35 @@ import { renderMarkdown } from '@/utils/markdown'
 import api from '@/api/index'
 import { chatApi, type SSEData } from '@/api/chat'
 
+interface Source {
+  filename?: string
+  name?: string
+  chunk_id?: string
+  score?: number
+}
+
+interface EvaluationResult {
+  faithfulness?: number
+  answer_relevance?: number
+  context_precision?: number
+  score?: number
+}
+
+interface ExecutionResult {
+  query: string
+  answer: string
+  sources?: Source[]
+  evaluation?: EvaluationResult | null
+}
+
+interface HistoryItem {
+  query: string
+  answer?: string
+  latency_ms: number
+  timestamp: number
+  evaluation?: EvaluationResult | null
+}
+
 interface NodeStatusMap {
   start: string; intent: string; retrieval: string; answer: string; evaluation: string; end: string
 }
@@ -195,8 +224,8 @@ const runStreaming = ref(true)
 const runEval = ref(true)
 const running = ref(false)
 const totalTime = ref(0)
-const executionResult = ref<any>(null)
-const history = ref<any[]>([])
+const executionResult = ref<ExecutionResult | null>(null)
+const history = ref<HistoryItem[]>([])
 
 const nodeStatus = reactive<NodeStatusMap>({
   start: 'pending', intent: 'pending', retrieval: 'pending',
@@ -217,7 +246,7 @@ async function runWorkflow() {
   const startTime = Date.now(); nodeStatus.start = 'success'
 
   if (runStreaming.value) {
-    let answerText = ''; const sources: any[] = []
+    let answerText = ''; const sources: Source[] = []
     nodeStatus.intent = 'running'
 
     await chatApi.streamChat(
@@ -292,7 +321,7 @@ function saveToHistory() {
   localStorage.setItem('workflow_history', JSON.stringify(history.value))
 }
 
-function loadHistory(item: any) {
+function loadHistory(item: HistoryItem) {
   runQuery.value = item.query
   executionResult.value = { query: item.query, answer: item.answer, evaluation: item.evaluation }
   showHistory.value = false
@@ -300,10 +329,6 @@ function loadHistory(item: any) {
 
 function formatTime(ts: number) {
   return new Date(ts).toLocaleString('zh-CN', { hour: '2-digit', minute: '2-digit' })
-}
-
-function formatMarkdown(text: string) {
-  return renderMarkdown(text || '')
 }
 
 onMounted(() => {

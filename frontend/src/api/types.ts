@@ -37,6 +37,8 @@ export interface RetrievalConfig {
   bm25_weight: number
   top_k: number
   rerank_enabled: boolean
+  llm_model?: string
+  embedding_model?: string
 }
 
 export interface SystemStats {

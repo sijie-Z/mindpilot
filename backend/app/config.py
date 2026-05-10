@@ -67,6 +67,16 @@ class Settings(BaseSettings):
     EMBEDDING_DIM: int = 2048
     EMBEDDING_MODEL: str = "embedding-3"
     LLM_MODEL: str = "glm-4-flash"
+
+    # Available models
+    AVAILABLE_MODELS: list[str] = [
+        "glm-4-flash",
+        "glm-4-plus",
+        "glm-4-long",
+        "glm-4-air",
+        "glm-4-airx",
+        "glm-4v-plus",
+    ]
     CHUNK_SIZE: int = 500
     CHUNK_OVERLAP: int = 100
     DEFAULT_VECTOR_WEIGHT: float = 0.7

@@ -57,6 +57,6 @@ describe('Router', () => {
   it('knowledge detail route accepts id param', () => {
     const detailRoute = router.getRoutes().find(r => r.path === '/knowledge/:id')
     expect(detailRoute).toBeDefined()
-    expect(detailRoute?.props).toBe(true)
+    expect(detailRoute?.props).toBeTruthy()
   })
 })

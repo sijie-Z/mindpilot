@@ -109,7 +109,9 @@ export const useChatStore = defineStore('chat', () => {
       if (idx >= 0) cached[idx] = session
       else cached.unshift(session)
       localStorage.setItem(STORAGE_KEY, JSON.stringify(cached.slice(0, 20)))
-    } catch { /* best-effort cache */ }
+    } catch (err) {
+      console.warn('Failed to cache locally:', err)
+    }
   }
 
   async function loadSessions(): Promise<void> {
@@ -125,7 +127,9 @@ export const useChatStore = defineStore('chat', () => {
         }))
         return
       }
-    } catch { /* fallback to localStorage */ }
+    } catch (err) {
+      console.warn('Failed to load sessions from API, using localStorage:', err)
+    }
 
     try {
       const stored = localStorage.getItem(STORAGE_KEY)
@@ -156,7 +160,9 @@ export const useChatStore = defineStore('chat', () => {
         cacheLocally()
         return
       }
-    } catch { /* fallback */ }
+    } catch (err) {
+      console.warn('Failed to load session from API, using local cache:', err)
+    }
 
     const session = sessions.value.find(s => s.id === sessionId)
     if (session) {
@@ -169,7 +175,9 @@ export const useChatStore = defineStore('chat', () => {
   async function deleteSession(sessionId: string): Promise<void> {
     try {
       await api.delete(`/chat/sessions/${sessionId}`)
-    } catch { /* best-effort */ }
+    } catch (err) {
+      console.warn('Failed to delete session from API:', err)
+    }
 
     const index = sessions.value.findIndex(s => s.id === sessionId)
     if (index !== -1) {

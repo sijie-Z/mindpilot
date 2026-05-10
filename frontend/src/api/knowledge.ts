@@ -12,7 +12,12 @@ export type { KnowledgeBase, Document, KnowledgeListResponse, DocumentListRespon
 export const knowledgeApi = {
   async list(): Promise<KnowledgeListResponse> {
     const response = await api.get('/knowledge/')
-    return { items: response.data, total: response.data.length }
+    const data = response.data
+    // Support both array response and paginated { items, total } response
+    if (Array.isArray(data)) {
+      return { items: data, total: data.length }
+    }
+    return { items: data.items || data, total: data.total ?? (data.items?.length ?? 0) }
   },
 
   // Alias for compatibility
@@ -78,7 +83,11 @@ export const knowledgeApi = {
 export const documentApi = {
   async list(knowledgeBaseId: string): Promise<DocumentListResponse> {
     const response = await api.get(`/knowledge/${knowledgeBaseId}/documents`)
-    return { items: response.data, total: response.data.length }
+    const data = response.data
+    if (Array.isArray(data)) {
+      return { items: data, total: data.length }
+    }
+    return { items: data.items || data, total: data.total ?? (data.items?.length ?? 0) }
   },
 
   async upload(knowledgeId: string, file: File): Promise<Document> {

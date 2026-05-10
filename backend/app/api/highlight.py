@@ -39,6 +39,13 @@ class HighlightResponse(BaseModel):
     top_sentences: list[str]
 
 
+class HighlightChunksRequest(BaseModel):
+    """Request for chunk highlighting."""
+    chunks: list[dict[str, Any]]
+    query: str
+    top_k: int = 3
+
+
 def split_sentences(text: str) -> list[tuple[str, int, int]]:
     """
     Split text into sentences with position tracking.
@@ -174,11 +181,7 @@ async def highlight_sentences(request: HighlightRequest):
 
 
 @router.post("/chunks")
-async def highlight_chunks(
-    query: str,
-    chunks: list[dict[str, Any]],
-    top_k: int = 3,
-):
+async def highlight_chunks(request: HighlightChunksRequest):
     """
     Highlight relevant sentences within multiple chunks.
 
@@ -186,7 +189,7 @@ async def highlight_chunks(
     """
     results = []
 
-    for chunk in chunks:
+    for chunk in request.chunks:
         content = chunk.get("content", "")
         if not content:
             results.append(chunk)
@@ -194,10 +197,10 @@ async def highlight_chunks(
 
         # Split and score
         sentences = split_sentences(content)
-        scored = await compute_sentence_scores(query, sentences)
+        scored = await compute_sentence_scores(request.query, sentences)
 
         # Get top sentences for this chunk
-        top_sentences = [s["sentence"] for s in scored[:top_k]]
+        top_sentences = [s["sentence"] for s in scored[:request.top_k]]
 
         # Add highlight info to chunk
         highlighted_chunk = {
@@ -205,7 +208,7 @@ async def highlight_chunks(
             "highlighted_sentences": top_sentences,
             "sentence_scores": [
                 {"sentence": s["sentence"], "score": s["score"]}
-                for s in scored[:top_k]
+                for s in scored[:request.top_k]
             ],
         }
         results.append(highlighted_chunk)

@@ -95,10 +95,37 @@
             <!-- Error message -->
             <div v-else-if="msg.type === 'error'" class="msg-error">
               {{ msg.content }}
+              <button class="retry-btn" @click="handleRetry" title="重试">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
+                </svg>
+                重试
+              </button>
             </div>
 
-            <!-- Text content -->
+            <!-- Text content (with edit mode) -->
+            <div v-if="editingMsgId === msg.id" class="msg-edit">
+              <textarea v-model="editText" class="edit-textarea" rows="2" ref="editInput"></textarea>
+              <div class="edit-actions">
+                <button class="edit-save" @click="saveEdit(msg.id)">保存并重新发送</button>
+                <button class="edit-cancel" @click="cancelEdit">取消</button>
+              </div>
+            </div>
             <div v-else class="msg-text" v-html="formatMarkdown(msg.content)"></div>
+
+            <!-- Edit button for user messages -->
+            <div v-if="msg.role === 'user' && msg.type === 'text' && editingMsgId !== msg.id" class="msg-actions">
+              <button
+                class="action-btn"
+                @click="startEdit(msg.id, msg.content)"
+                title="编辑消息"
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
+                </svg>
+                <span>编辑</span>
+              </button>
+            </div>
 
             <!-- Sources -->
             <div v-if="msg.sources && msg.sources.length > 0" class="msg-sources">
@@ -124,6 +151,26 @@
             <!-- Branch button for assistant messages -->
             <div v-if="msg.role === 'assistant' && msg.type === 'text'" class="msg-actions">
               <button
+                class="action-btn"
+                @click="handleCopyMessage(msg.content)"
+                title="复制回答"
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
+                </svg>
+                <span>复制</span>
+              </button>
+              <button
+                class="action-btn"
+                @click="handleRegenerate(msg.id)"
+                title="重新生成"
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
+                </svg>
+                <span>重新生成</span>
+              </button>
+              <button
                 class="action-btn branch-btn"
                 @click="handleBranchClick(msg.id)"
                 title="从此处分叉对话"
@@ -146,13 +193,25 @@
 
     <!-- Input Area -->
     <div class="input-area">
-      <div class="input-container">
+      <div
+        class="input-container"
+        @dragover.prevent="onDragOver"
+        @dragleave="onDragLeave"
+        @drop.prevent="onDrop"
+        :class="{ 'drag-over': isDragging }"
+      >
         <div class="input-tools">
           <button class="tool-btn" @click="showSearchModal = true" title="搜索历史对话">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/>
             </svg>
             <span>搜索</span>
+          </button>
+          <button class="tool-btn" @click="handleExport('markdown')" title="导出对话" :disabled="chatStore.messages.length === 0">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
+            </svg>
+            <span>导出</span>
           </button>
           <button class="tool-btn" @click="showBranchPanel = !showBranchPanel; loadBranches()" title="对话分支">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -172,12 +231,24 @@
             </svg>
             <span>{{ currentModel }}</span>
           </button>
+          <button class="tool-btn" @click="showTemplatePicker = true" title="提示词模板">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/>
+            </svg>
+            <span>模板</span>
+          </button>
           <button class="tool-btn" @click="handleImageUpload" title="上传图片">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/>
             </svg>
           </button>
           <input ref="imageInput" type="file" accept="image/*" hidden @change="onImageSelected" />
+          <button class="tool-btn" @click="handleShare" title="分享对话" :disabled="chatStore.messages.length === 0">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/>
+            </svg>
+            <span>分享</span>
+          </button>
         </div>
 
         <div class="input-box">
@@ -187,17 +258,41 @@
             placeholder="输入消息，按 Enter 发送，Shift+Enter 换行..."
             :disabled="chatStore.loading"
             rows="1"
-            @keydown.enter.exact.prevent="handleSend"
+            @keydown="handleKeydown"
+            @input="onInput"
           ></textarea>
           <button
+            v-if="chatStore.loading"
+            class="send-btn stop-btn"
+            @click="handleStop"
+            title="停止生成 (Escape)"
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+              <rect x="6" y="6" width="12" height="12" rx="2"/>
+            </svg>
+          </button>
+          <button
+            v-else
             class="send-btn"
             @click="handleSend"
-            :disabled="!inputText.trim() || chatStore.loading"
+            :disabled="!inputText.trim()"
           >
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/>
             </svg>
           </button>
+        </div>
+
+        <!-- Suggestions dropdown -->
+        <div v-if="showSuggestions" class="suggestions-dropdown">
+          <div
+            v-for="(s, i) in inputSuggestions"
+            :key="i"
+            class="suggestion-item"
+            @click="applySuggestion(s)"
+          >
+            {{ s.slice(0, 80) }}{{ s.length > 80 ? '...' : '' }}
+          </div>
         </div>
 
         <div class="input-footer">
@@ -207,114 +302,36 @@
     </div>
 
     <!-- Knowledge Picker Modal -->
-    <div v-if="showKnowledgePicker" class="modal" @click.self="showKnowledgePicker = false">
-      <div class="modal-panel">
-        <div class="modal-header">
-          <h3>选择知识库</h3>
-          <button class="modal-close" @click="showKnowledgePicker = false">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
-            </svg>
-          </button>
-        </div>
-        <div class="modal-body">
-          <div v-if="knowledgeBases.length === 0" class="modal-empty">
-            <p>暂无知识库</p>
-            <router-link to="/knowledge" class="btn-primary" @click="showKnowledgePicker = false">创建知识库</router-link>
-          </div>
-          <div v-else class="kb-list">
-            <div
-              v-for="kb in knowledgeBases"
-              :key="kb.id"
-              class="kb-item"
-              :class="{ selected: selectedKnowledge?.id === kb.id }"
-              @click="selectKnowledge(kb)"
-            >
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/>
-              </svg>
-              <div class="kb-info">
-                <div class="kb-name">{{ kb.name }}</div>
-                <div class="kb-meta">{{ kb.doc_count || 0 }} 文档 · {{ kb.chunk_count || 0 }} 片段</div>
-              </div>
-              <svg v-if="selectedKnowledge?.id === kb.id" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--color-primary)" stroke-width="3">
-                <polyline points="20 6 9 17 4 12"/>
-              </svg>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
+    <KnowledgePicker
+      v-if="showKnowledgePicker"
+      :knowledge-bases="knowledgeBases"
+      :selected-id="selectedKnowledge?.id"
+      @close="showKnowledgePicker = false"
+      @select="selectKnowledge"
+    />
 
     <!-- Model Picker Modal -->
-    <div v-if="showModelPicker" class="modal" @click.self="showModelPicker = false">
-      <div class="modal-panel modal-sm">
-        <div class="modal-header">
-          <h3>选择模型</h3>
-          <button class="modal-close" @click="showModelPicker = false">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
-            </svg>
-          </button>
-        </div>
-        <div class="modal-body">
-          <div
-            v-for="m in models"
-            :key="m.id"
-            class="model-option"
-            :class="{ selected: currentModel === m.id }"
-            @click="selectModel(m.id)"
-          >
-            <div class="model-name">{{ m.label }}</div>
-            <div class="model-desc">{{ m.desc }}</div>
-          </div>
-        </div>
-      </div>
-    </div>
+    <ModelPicker
+      v-if="showModelPicker"
+      :models="models"
+      :current-model="currentModel"
+      @close="showModelPicker = false"
+      @select="selectModel"
+    />
+
+    <!-- Template Picker Modal -->
+    <TemplatePicker
+      v-if="showTemplatePicker"
+      @close="showTemplatePicker = false"
+      @select="selectTemplate"
+    />
 
     <!-- Conversation Search Modal -->
-    <div v-if="showSearchModal" class="modal" @click.self="showSearchModal = false">
-      <div class="modal-panel">
-        <div class="modal-header">
-          <h3>搜索历史对话</h3>
-          <button class="modal-close" @click="showSearchModal = false">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
-            </svg>
-          </button>
-        </div>
-        <div class="modal-body">
-          <div class="search-input-wrapper">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/>
-            </svg>
-            <input
-              v-model="searchQuery"
-              type="text"
-              placeholder="搜索对话内容..."
-              class="search-input"
-              @keydown.enter="performSearch"
-            />
-          </div>
-          <div v-if="searchLoading" class="search-loading">搜索中...</div>
-          <div v-else-if="searchResults.length > 0" class="search-results">
-            <div
-              v-for="result in searchResults"
-              :key="result.id"
-              class="search-result-item"
-              @click="goToSession(result.session_id)"
-            >
-              <div class="search-result-session">会话 {{ result.session_id?.slice(0, 8) }}...</div>
-              <div class="search-result-content">{{ result.content }}</div>
-              <div class="search-result-time">{{ formatTime(new Date(result.created_at).getTime()) }}</div>
-            </div>
-          </div>
-          <div v-else-if="searchQuery && !searchLoading" class="search-empty">
-            未找到匹配的对话内容
-          </div>
-        </div>
-      </div>
-    </div>
+    <SearchModal
+      v-if="showSearchModal"
+      @close="showSearchModal = false"
+      @go-to-session="goToSession"
+    />
 
     <!-- Branch Panel -->
     <div v-if="showBranchPanel" class="branch-panel-overlay" @click.self="showBranchPanel = false">
@@ -329,16 +346,38 @@
         @close="showBranchPanel = false"
       />
     </div>
+
+    <!-- Share Dialog -->
+    <el-dialog v-model="showShareDialog" title="分享对话" width="420px" :close-on-click-modal="true">
+      <div class="share-dialog-content">
+        <p class="share-desc">通过以下链接分享此对话，任何人都可以查看：</p>
+        <div class="share-link-row">
+          <input :value="shareUrl" readonly class="share-link-input" />
+          <button class="share-copy-btn" @click="copyShareUrl">复制</button>
+        </div>
+      </div>
+      <template #footer>
+        <button class="share-unshare-btn" @click="handleUnshare">取消分享</button>
+        <button class="share-close-btn" @click="showShareDialog = false">关闭</button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref, computed, onMounted, nextTick, watch } from 'vue'
 import { useRoute } from 'vue-router'
+import { ElMessage } from 'element-plus'
 import { renderMarkdown } from '@/utils/markdown'
 import { useChatStore } from '@/stores/chat'
+import { chatApi } from '@/api/chat'
 import { branchesApi, type Branch } from '@/api/branches'
+import type { KnowledgeBase } from '@/api/types'
 import BranchTree from '@/components/BranchTree.vue'
+import KnowledgePicker from '@/components/KnowledgePicker.vue'
+import ModelPicker from '@/components/ModelPicker.vue'
+import SearchModal from '@/components/SearchModal.vue'
+import TemplatePicker from '@/components/TemplatePicker.vue'
 import api from '@/api/index'
 
 const route = useRoute()
@@ -353,15 +392,19 @@ const showKnowledgePicker = ref(false)
 const showModelPicker = ref(false)
 const showSearchModal = ref(false)
 const showBranchPanel = ref(false)
-const searchQuery = ref('')
-const searchResults = ref<any[]>([])
-const searchLoading = ref(false)
-const knowledgeBases = ref<any[]>([])
-const selectedKnowledge = ref<any>(null)
+const showTemplatePicker = ref(false)
+const isDragging = ref(false)
+const knowledgeBases = ref<KnowledgeBase[]>([])
+const selectedKnowledge = ref<KnowledgeBase | null>(null)
 const currentModel = ref('glm-4-flash')
 const expandedSources = ref(new Set<string>())
 const selectedImageBase64 = ref<string | null>(null)
 const selectedImageName = ref<string>('')
+const editingMsgId = ref<string | null>(null)
+const editText = ref('')
+const editInput = ref<HTMLTextAreaElement>()
+const inputSuggestions = ref<string[]>([])
+const showSuggestions = ref(false)
 
 // Branch state
 const branches = ref<Branch[]>([])
@@ -369,11 +412,37 @@ const currentBranchId = ref<string | null>(null)
 const selectedMessageId = ref<string | null>(null)
 const branchMessageCount = ref(0)
 
-const models = [
-  { id: 'glm-4-flash', label: 'GLM-4-Flash', desc: '快速响应，适合日常对话' },
-  { id: 'glm-4', label: 'GLM-4', desc: '标准模型，平衡速度与质量' },
-  { id: 'glm-4v-plus', label: 'GLM-4V-Plus', desc: '多模态，支持图像理解' },
-]
+const MODEL_DESCRIPTIONS: Record<string, string> = {
+  'glm-4-flash': '快速响应，适合日常对话',
+  'glm-4-plus': '增强版，更高质量回答',
+  'glm-4-long': '超长上下文，适合长文档',
+  'glm-4-air': '轻量版，性价比高',
+  'glm-4-airx': '轻量增强版，速度与质量平衡',
+  'glm-4v-plus': '多模态，支持图像理解',
+}
+
+const models = ref<{ id: string; label: string; desc: string }[]>([])
+
+async function loadModels() {
+  try {
+    const res = await api.get('/health/models')
+    const data = res.data
+    models.value = (data.models || []).map((id: string) => ({
+      id,
+      label: id.toUpperCase().replace(/-/g, ' '),
+      desc: MODEL_DESCRIPTIONS[id] || '语言模型',
+    }))
+    // Set default from server
+    if (data.default && !currentModel.value) {
+      currentModel.value = data.default
+    }
+  } catch {
+    // Fallback to hardcoded models
+    models.value = [
+      { id: 'glm-4-flash', label: 'GLM-4-FLASH', desc: '快速响应，适合日常对话' },
+    ]
+  }
+}
 
 const suggestions = [
   '什么是 RAG 技术？',
@@ -387,7 +456,7 @@ const visibleMessages = computed(() =>
 )
 
 onMounted(async () => {
-  await loadKnowledgeBases()
+  await Promise.all([loadKnowledgeBases(), loadModels()])
 
   const sessionId = route.query.session as string
   if (sessionId) {
@@ -406,12 +475,59 @@ async function loadKnowledgeBases() {
     if (knowledgeBases.value.length > 0 && !selectedKnowledge.value) {
       selectedKnowledge.value = knowledgeBases.value[0]
     }
-  } catch { /* knowledge API may not be available */ }
+  } catch (err) {
+    console.warn('Failed to load knowledge bases:', err)
+  }
 }
 
 function handleSuggestion(q: string) {
   inputText.value = q
   handleSend()
+}
+
+async function handleExport(format: 'markdown' | 'json' = 'markdown') {
+  if (chatStore.messages.length === 0) return
+  try {
+    await chatApi.exportSession(chatStore.currentSessionId, format)
+    ElMessage.success('导出成功')
+  } catch (err) {
+    console.error('Export failed:', err)
+    ElMessage.error('导出失败')
+  }
+}
+
+const shareUrl = ref('')
+const showShareDialog = ref(false)
+
+async function handleShare() {
+  if (chatStore.messages.length === 0) return
+  if (!chatStore.currentSessionId) return
+  try {
+    const result = await chatApi.shareSession(chatStore.currentSessionId)
+    shareUrl.value = `${window.location.origin}/share/${result.share_id}`
+    showShareDialog.value = true
+    ElMessage.success('分享链接已生成')
+  } catch (err) {
+    console.error('Share failed:', err)
+    ElMessage.error('生成分享链接失败')
+  }
+}
+
+function copyShareUrl() {
+  navigator.clipboard.writeText(shareUrl.value)
+  ElMessage.success('链接已复制')
+}
+
+async function handleUnshare() {
+  if (!chatStore.currentSessionId) return
+  try {
+    await chatApi.unshareSession(chatStore.currentSessionId)
+    showShareDialog.value = false
+    shareUrl.value = ''
+    ElMessage.success('已取消分享')
+  } catch (err) {
+    ElMessage.error('取消分享失败')
+  }
 }
 
 async function handleSend() {
@@ -454,7 +570,7 @@ function onImageSelected(e: Event) {
   reader.readAsDataURL(file)
 }
 
-function selectKnowledge(kb: any) {
+function selectKnowledge(kb: KnowledgeBase) {
   selectedKnowledge.value = kb
   showKnowledgePicker.value = false
 }
@@ -464,17 +580,206 @@ function selectModel(id: string) {
   showModelPicker.value = false
 }
 
-async function performSearch() {
-  const q = searchQuery.value.trim()
-  if (!q) return
-  searchLoading.value = true
+function selectTemplate(content: string) {
+  inputText.value = content
+  showTemplatePicker.value = false
+  nextTick(() => {
+    inputRef.value?.focus()
+    autoResize()
+  })
+}
+
+function handleStop() {
+  chatStore.abortStream()
+  chatStore.loading = false
+  chatStore.streamingStatus = ''
+}
+
+function handleRetry() {
+  // Find the last user message and resend it
+  const lastUserMsg = [...chatStore.messages].reverse().find(m => m.role === 'user')
+  if (lastUserMsg) {
+    // Remove error messages after the last user message
+    const userIdx = chatStore.messages.findIndex(m => m.id === lastUserMsg.id)
+    const toRemove = chatStore.messages.slice(userIdx + 1).filter(m => m.type === 'error')
+    toRemove.forEach(m => chatStore.removeMessage(m.id))
+
+    chatStore.sendMessage(lastUserMsg.content, {
+      knowledgeId: selectedKnowledge.value?.id,
+      model: currentModel.value,
+    })
+  }
+}
+
+function handleRegenerate(assistantMsgId: string) {
+  // Find the user message before this assistant message
+  const msgIdx = chatStore.messages.findIndex(m => m.id === assistantMsgId)
+  if (msgIdx < 0) return
+
+  // Look backwards for the user message
+  let userMsg: Message | null = null
+  for (let i = msgIdx - 1; i >= 0; i--) {
+    if (chatStore.messages[i].role === 'user') {
+      userMsg = chatStore.messages[i]
+      break
+    }
+  }
+  if (!userMsg) return
+
+  // Remove the assistant message and any status messages after it
+  chatStore.removeMessage(assistantMsgId)
+  const toRemove = chatStore.messages.slice(msgIdx).filter(m => m.type === 'status' || m.type === 'error')
+  toRemove.forEach(m => chatStore.removeMessage(m.id))
+
+  chatStore.sendMessage(userMsg.content, {
+    knowledgeId: selectedKnowledge.value?.id,
+    model: currentModel.value,
+  })
+}
+
+async function handleCopyMessage(content: string) {
   try {
-    const res = await api.get('/chat/search', { params: { q, limit: 20 } })
-    searchResults.value = res.data?.results || []
+    await navigator.clipboard.writeText(content)
+    ElMessage.success('已复制')
   } catch {
-    searchResults.value = []
-  } finally {
-    searchLoading.value = false
+    ElMessage.error('复制失败')
+  }
+}
+
+function handleKeydown(e: KeyboardEvent) {
+  // Escape: close modals or stop generating
+  if (e.key === 'Escape') {
+    if (chatStore.loading) {
+      handleStop()
+      return
+    }
+    showKnowledgePicker.value = false
+    showModelPicker.value = false
+    showTemplatePicker.value = false
+    showSearchModal.value = false
+    showBranchPanel.value = false
+    showShareDialog.value = false
+    return
+  }
+  // Ctrl+K: open search
+  if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
+    e.preventDefault()
+    showSearchModal.value = true
+    return
+  }
+  // Enter to send (exact match, no modifiers)
+  if (e.key === 'Enter' && !e.shiftKey && !e.ctrlKey && !e.metaKey) {
+    e.preventDefault()
+    handleSend()
+  }
+}
+
+function autoResize() {
+  nextTick(() => {
+    const el = inputRef.value
+    if (!el) return
+    el.style.height = 'auto'
+    el.style.height = Math.min(el.scrollHeight, 200) + 'px'
+  })
+}
+
+// ── Edit message ──
+
+function startEdit(msgId: string, content: string) {
+  editingMsgId.value = msgId
+  editText.value = content
+  nextTick(() => editInput.value?.focus())
+}
+
+function cancelEdit() {
+  editingMsgId.value = null
+  editText.value = ''
+}
+
+async function saveEdit(msgId: string) {
+  if (!editText.value.trim()) return
+  try {
+    await api.put(`/chat/messages/${msgId}`, { content: editText.value.trim() })
+    // Reload the session to get updated messages
+    if (chatStore.currentSessionId) {
+      await chatStore.loadSession(chatStore.currentSessionId)
+    }
+    editingMsgId.value = null
+    editText.value = ''
+    // Re-send with the edited content
+    await chatStore.sendMessage(editText.value.trim() || '', {
+      knowledgeId: selectedKnowledge.value?.id,
+      model: currentModel.value,
+    })
+  } catch (err) {
+    console.error('Failed to edit message:', err)
+    ElMessage.error('编辑失败')
+  }
+}
+
+// ── Input suggestions ──
+
+function updateSuggestions() {
+  const text = inputText.value.trim()
+  if (text.length < 2) {
+    showSuggestions.value = false
+    return
+  }
+  // Match against recent user messages
+  const recent = chatStore.messages
+    .filter(m => m.role === 'user' && m.content.includes(text) && m.content !== text)
+    .map(m => m.content)
+    .slice(0, 3)
+  // Match against templates
+  const tplMatches: string[] = []
+  inputSuggestions.value = [...new Set([...recent, ...tplMatches])].slice(0, 5)
+  showSuggestions.value = inputSuggestions.value.length > 0
+}
+
+function applySuggestion(text: string) {
+  inputText.value = text
+  showSuggestions.value = false
+  nextTick(() => inputRef.value?.focus())
+}
+
+function onInput() {
+  autoResize()
+  updateSuggestions()
+}
+
+// ── Drag and drop ──
+
+function onDragOver(e: DragEvent) {
+  e.preventDefault()
+  isDragging.value = true
+}
+
+function onDragLeave() {
+  isDragging.value = false
+}
+
+function onDrop(e: DragEvent) {
+  isDragging.value = false
+  const files = e.dataTransfer?.files
+  if (!files?.length) return
+
+  const file = files[0]
+  if (file.type.startsWith('image/')) {
+    if (file.size > 10 * 1024 * 1024) {
+      ElMessage.warning('图片大小不能超过 10MB')
+      return
+    }
+    const reader = new FileReader()
+    reader.onload = () => {
+      const result = reader.result as string
+      selectedImageBase64.value = result.split(',')[1]
+      selectedImageName.value = file.name
+      inputText.value = `[图片: ${file.name}] ${inputText.value}`
+    }
+    reader.readAsDataURL(file)
+  } else if (file.name.match(/\.(pdf|docx?|pptx?|txt|md)$/i)) {
+    // Redirect to knowledge upload
+    ElMessage.info('请在知识库页面上传文档')
   }
 }
 
@@ -553,14 +858,15 @@ async function switchBranch(branchId: string | null) {
     try {
       const response = await branchesApi.get(branchId)
       // Load branch messages into chat store
-      chatStore.messages = response.messages.map((m: any, i: number) => ({
-        id: m.id || `${branchId}-${i}`,
-        role: m.role,
-        type: 'text' as const,
-        content: m.content,
-        sources: m.metadata?.sources || [],
-        timestamp: new Date(m.created_at).getTime(),
-      }))
+      chatStore.clearMessages()
+      for (const m of response.messages) {
+        chatStore.addMessage(
+          m.role,
+          m.content,
+          'text',
+          m.metadata?.sources || [],
+        )
+      }
     } catch (error) {
       console.error('Failed to switch branch:', error)
     }
@@ -787,15 +1093,11 @@ function handleBranchClick(messageId: string) {
 /* Error message */
 .msg-error {
   padding: var(--space-3);
-  background: #fef2f2;
-  border: 1px solid #fecaca;
+  background: var(--color-error-bg);
+  border: 1px solid var(--color-error-border);
   border-radius: var(--radius-sm);
   color: var(--color-error);
   font-size: var(--text-sm);
-}
-.dark .msg-error {
-  background: #451a1a;
-  border-color: #7f1d1d;
 }
 
 /* Text message */
@@ -825,6 +1127,45 @@ function handleBranchClick(messageId: string) {
 .msg-text :deep(pre code) {
   background: none;
   padding: 0;
+}
+
+/* Code block with copy button */
+.msg-text :deep(.code-block) {
+  position: relative;
+  margin: var(--space-3) 0;
+}
+.msg-text :deep(.code-block pre) {
+  margin: 0;
+}
+.msg-text :deep(.code-copy-btn) {
+  position: absolute;
+  top: var(--space-2);
+  right: var(--space-2);
+  padding: 2px 8px;
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: var(--radius-sm);
+  color: #94a3b8;
+  font-size: var(--text-xs);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity var(--transition-fast);
+  font-family: var(--font-sans);
+}
+.msg-text :deep(.code-block:hover .code-copy-btn) {
+  opacity: 1;
+}
+.msg-text :deep(.code-copy-btn:hover) {
+  background: rgba(255, 255, 255, 0.2);
+  color: #e2e8f0;
+}
+.msg-text :deep(.code-lang) {
+  position: absolute;
+  top: var(--space-2);
+  left: var(--space-3);
+  color: #64748b;
+  font-size: var(--text-xs);
+  font-family: var(--font-mono);
 }
 .msg-text :deep(ul), .msg-text :deep(ol) {
   padding-left: var(--space-6);
@@ -914,9 +1255,9 @@ function handleBranchClick(messageId: string) {
   color: var(--color-primary);
 }
 .branch-btn:hover {
-  background: #f0fdf4;
-  border-color: #86efac;
-  color: #16a34a;
+  background: var(--bg-branch);
+  border-color: var(--border-branch);
+  color: var(--color-branch);
 }
 
 /* Loading bar */
@@ -946,6 +1287,14 @@ function handleBranchClick(messageId: string) {
 .input-container {
   max-width: 820px;
   margin: 0 auto;
+  position: relative;
+  transition: all var(--transition-fast);
+}
+.input-container.drag-over {
+  border: 2px dashed var(--color-primary);
+  border-radius: var(--radius-lg);
+  background: var(--color-primary-light);
+  padding: var(--space-2);
 }
 .input-tools {
   display: flex;
@@ -1023,222 +1372,118 @@ function handleBranchClick(messageId: string) {
   background: var(--color-border);
   cursor: not-allowed;
 }
+.stop-btn {
+  background: var(--color-error);
+}
+.stop-btn:hover {
+  background: #dc2626;
+}
+
+/* Retry button in error messages */
+.retry-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  margin-top: var(--space-2);
+  padding: var(--space-1) var(--space-3);
+  background: none;
+  border: 1px solid var(--color-error-border);
+  border-radius: var(--radius-sm);
+  color: var(--color-error);
+  font-size: var(--text-xs);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  font-family: var(--font-sans);
+}
+.retry-btn:hover {
+  background: var(--color-error-bg);
+}
+
+/* Edit mode */
+.msg-edit {
+  margin-top: var(--space-2);
+}
+.edit-textarea {
+  width: 100%;
+  padding: var(--space-2);
+  border: 1px solid var(--color-primary);
+  border-radius: var(--radius-sm);
+  font-size: var(--text-base);
+  font-family: var(--font-sans);
+  line-height: var(--leading-normal);
+  color: var(--color-text);
+  background: var(--color-bg);
+  resize: vertical;
+  min-height: 60px;
+}
+.edit-textarea:focus {
+  outline: none;
+  box-shadow: 0 0 0 3px var(--color-primary-light);
+}
+.edit-actions {
+  display: flex;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+}
+.edit-save {
+  padding: var(--space-1) var(--space-3);
+  background: var(--color-primary);
+  border: none;
+  border-radius: var(--radius-sm);
+  color: #fff;
+  font-size: var(--text-xs);
+  cursor: pointer;
+  font-family: var(--font-sans);
+}
+.edit-save:hover { background: var(--color-primary-hover); }
+.edit-cancel {
+  padding: var(--space-1) var(--space-3);
+  background: none;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  color: var(--color-text-secondary);
+  font-size: var(--text-xs);
+  cursor: pointer;
+  font-family: var(--font-sans);
+}
+.edit-cancel:hover { background: var(--color-bg-tertiary); }
+
+/* Suggestions dropdown */
+.suggestions-dropdown {
+  position: absolute;
+  bottom: 100%;
+  left: 0;
+  right: 0;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-lg);
+  max-height: 200px;
+  overflow-y: auto;
+  z-index: 10;
+  margin-bottom: var(--space-1);
+}
+.suggestion-item {
+  padding: var(--space-2) var(--space-3);
+  font-size: var(--text-sm);
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  border-bottom: 1px solid var(--color-border-light);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.suggestion-item:last-child { border-bottom: none; }
+.suggestion-item:hover {
+  background: var(--color-bg-secondary);
+  color: var(--color-text);
+}
 
 .input-footer {
   text-align: center;
   margin-top: var(--space-2);
   font-size: var(--text-xs);
   color: var(--color-text-tertiary);
-}
-
-/* ── Modals ── */
-.modal {
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.5);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 200;
-  backdrop-filter: blur(4px);
-}
-.modal-panel {
-  width: 480px;
-  max-height: 480px;
-  background: var(--color-surface);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-xl);
-  box-shadow: var(--shadow-lg);
-  overflow: hidden;
-}
-.modal-sm { width: 360px; }
-.modal-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: var(--space-4) var(--space-5);
-  border-bottom: 1px solid var(--color-border);
-}
-.modal-header h3 {
-  font-size: var(--text-lg);
-  font-weight: var(--font-semibold);
-  color: var(--color-text);
-}
-.modal-close {
-  width: 28px;
-  height: 28px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: none;
-  border: none;
-  border-radius: var(--radius-sm);
-  color: var(--color-text-tertiary);
-  cursor: pointer;
-}
-.modal-close:hover {
-  background: var(--color-bg-tertiary);
-  color: var(--color-text);
-}
-.modal-body {
-  padding: var(--space-4);
-  max-height: 360px;
-  overflow-y: auto;
-}
-.modal-empty {
-  text-align: center;
-  padding: var(--space-8);
-  color: var(--color-text-secondary);
-}
-.modal-empty p { margin-bottom: var(--space-4); }
-
-.btn-primary {
-  display: inline-block;
-  padding: var(--space-2) var(--space-5);
-  background: var(--color-primary);
-  border: none;
-  border-radius: var(--radius-md);
-  color: #fff;
-  font-size: var(--text-sm);
-  font-weight: var(--font-medium);
-  cursor: pointer;
-  text-decoration: none;
-  font-family: var(--font-sans);
-}
-.btn-primary:hover { background: var(--color-primary-hover); }
-
-.kb-list {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
-}
-.kb-item {
-  display: flex;
-  align-items: center;
-  gap: var(--space-3);
-  padding: var(--space-3);
-  background: var(--color-bg-secondary);
-  border: 1px solid transparent;
-  border-radius: var(--radius-md);
-  cursor: pointer;
-  transition: all var(--transition-fast);
-}
-.kb-item:hover { background: var(--color-bg-tertiary); }
-.kb-item.selected {
-  border-color: var(--color-primary);
-  background: var(--color-primary-light);
-}
-.kb-item svg { color: var(--color-text-tertiary); flex-shrink: 0; }
-.kb-item.selected svg { color: var(--color-primary); }
-.kb-info { flex: 1; }
-.kb-name {
-  font-size: var(--text-sm);
-  font-weight: var(--font-medium);
-  color: var(--color-text);
-}
-.kb-meta {
-  font-size: var(--text-xs);
-  color: var(--color-text-tertiary);
-  margin-top: 2px;
-}
-
-.model-option {
-  padding: var(--space-3);
-  background: var(--color-bg-secondary);
-  border: 1px solid transparent;
-  border-radius: var(--radius-md);
-  cursor: pointer;
-  margin-bottom: var(--space-2);
-  transition: all var(--transition-fast);
-}
-.model-option:last-child { margin-bottom: 0; }
-.model-option:hover { background: var(--color-bg-tertiary); }
-.model-option.selected {
-  border-color: var(--color-primary);
-  background: var(--color-primary-light);
-}
-.model-name {
-  font-size: var(--text-sm);
-  font-weight: var(--font-medium);
-  color: var(--color-text);
-}
-.model-desc {
-  font-size: var(--text-xs);
-  color: var(--color-text-tertiary);
-  margin-top: 2px;
-}
-
-/* ── Search ── */
-.search-input-wrapper {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  padding: var(--space-2) var(--space-3);
-  background: var(--color-bg);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  margin-bottom: var(--space-4);
-}
-.search-input-wrapper svg { color: var(--color-text-tertiary); flex-shrink: 0; }
-.search-input {
-  flex: 1;
-  border: none;
-  outline: none;
-  background: transparent;
-  font-size: var(--text-sm);
-  color: var(--color-text);
-  font-family: var(--font-sans);
-}
-.search-input::placeholder { color: var(--color-text-tertiary); }
-
-.search-loading {
-  text-align: center;
-  padding: var(--space-6);
-  color: var(--color-text-secondary);
-  font-size: var(--text-sm);
-}
-.search-results {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
-}
-.search-result-item {
-  padding: var(--space-3);
-  background: var(--color-bg-secondary);
-  border: 1px solid var(--color-border-light);
-  border-radius: var(--radius-md);
-  cursor: pointer;
-  transition: all var(--transition-fast);
-}
-.search-result-item:hover {
-  border-color: var(--color-primary);
-  background: var(--color-primary-light);
-}
-.search-result-session {
-  font-size: var(--text-xs);
-  color: var(--color-primary);
-  font-weight: var(--font-medium);
-  margin-bottom: var(--space-1);
-}
-.search-result-content {
-  font-size: var(--text-sm);
-  color: var(--color-text);
-  line-height: var(--leading-normal);
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-}
-.search-result-time {
-  font-size: var(--text-xs);
-  color: var(--color-text-tertiary);
-  margin-top: var(--space-1);
-}
-.search-empty {
-  text-align: center;
-  padding: var(--space-6);
-  color: var(--color-text-tertiary);
-  font-size: var(--text-sm);
 }
 
 /* ── Branch Panel ── */
@@ -1258,5 +1503,61 @@ function handleBranchClick(messageId: string) {
 
 .branch-panel-overlay :deep(.branch-tree) {
   max-height: calc(100vh - 120px);
+}
+
+/* ── Share Dialog ── */
+.share-dialog-content {
+  padding: var(--space-2) 0;
+}
+.share-desc {
+  font-size: var(--text-sm);
+  color: var(--color-text-secondary);
+  margin-bottom: var(--space-4);
+}
+.share-link-row {
+  display: flex;
+  gap: var(--space-2);
+}
+.share-link-input {
+  flex: 1;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  font-size: var(--text-sm);
+  color: var(--color-text);
+  background: var(--color-bg-secondary);
+  font-family: var(--font-mono);
+}
+.share-copy-btn {
+  padding: var(--space-2) var(--space-4);
+  background: var(--color-primary);
+  color: white;
+  border: none;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  font-size: var(--text-sm);
+  white-space: nowrap;
+}
+.share-copy-btn:hover {
+  opacity: 0.9;
+}
+.share-unshare-btn {
+  padding: var(--space-2) var(--space-4);
+  background: var(--color-error);
+  color: white;
+  border: none;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  font-size: var(--text-sm);
+  margin-right: auto;
+}
+.share-close-btn {
+  padding: var(--space-2) var(--space-4);
+  background: var(--color-bg-secondary);
+  color: var(--color-text);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  font-size: var(--text-sm);
 }
 </style>

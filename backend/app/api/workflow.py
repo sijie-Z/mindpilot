@@ -3,10 +3,11 @@ Workflow management API.
 """
 from typing import Any
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 
 from app.agents.workflow import WorkflowState, create_default_workflow, default_workflow
+from app.auth import TokenData, get_optional_user
 
 router = APIRouter()
 
@@ -35,7 +36,9 @@ class WorkflowInfo(BaseModel):
 
 
 @router.get("/", response_model=WorkflowInfo)
-async def get_workflow_info():
+async def get_workflow_info(
+    current_user: TokenData | None = Depends(get_optional_user),
+):
     """Get current workflow configuration."""
     wf = default_workflow
     info = wf.to_dict()
@@ -43,7 +46,10 @@ async def get_workflow_info():
 
 
 @router.post("/run", response_model=WorkflowRunResponse)
-async def run_workflow(request: WorkflowRunRequest):
+async def run_workflow(
+    request: WorkflowRunRequest,
+    current_user: TokenData | None = Depends(get_optional_user),
+):
     """Run the workflow with a query."""
     wf = create_default_workflow()
 
@@ -66,7 +72,9 @@ async def run_workflow(request: WorkflowRunRequest):
 
 
 @router.get("/nodes")
-async def list_nodes():
+async def list_nodes(
+    current_user: TokenData | None = Depends(get_optional_user),
+):
     """List all workflow nodes."""
     wf = default_workflow
     return {

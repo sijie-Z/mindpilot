@@ -357,3 +357,104 @@ class TestDecorrelatedJitter:
         results = {decorrelated_jitter() for _ in range(10)}
         # Should have some variation (not all the same)
         assert len(results) > 1
+
+
+# ── Context Engine Token Estimation Tests ──
+
+class TestTokenEstimation:
+    def test_empty_string(self):
+        from app.core.context_engine import estimate_tokens
+        assert estimate_tokens("") == 0
+
+    def test_pure_chinese(self):
+        from app.core.context_engine import estimate_tokens
+        tokens = estimate_tokens("你好世界")
+        # 4 CJK chars * 1.5 = 6
+        assert tokens == 6
+
+    def test_pure_english(self):
+        from app.core.context_engine import estimate_tokens
+        tokens = estimate_tokens("hello world")
+        # 10 ascii chars * 0.35 ≈ 3.5 → 3
+        assert tokens > 0
+        assert tokens < 20  # Should be much less than len/2
+
+    def test_mixed_content(self):
+        from app.core.context_engine import estimate_tokens
+        tokens = estimate_tokens("Hello 你好 World 世界")
+        assert tokens > 0
+
+    def test_none_content(self):
+        from app.core.context_engine import estimate_tokens
+        assert estimate_tokens(None) == 0
+
+    def test_context_message_auto_estimate(self):
+        from app.core.context_engine import ContextMessage
+        msg = ContextMessage(role="user", content="你好世界")
+        assert msg.token_estimate > 0
+
+
+# ── Curator Extended Tests ──
+
+class TestCuratorExtended:
+    def test_maintenance_result_fields(self):
+        from app.core.curator import MaintenanceResult
+        result = MaintenanceResult(
+            run_id="test-123",
+            started_at=1000.0,
+            completed_at=1001.0,
+            duration_ms=1000,
+            pruned_chunks=5,
+            consolidated_chunks=2,
+            consistency_fixes=1,
+        )
+        assert result.success is True
+        assert result.pruned_chunks == 5
+
+    def test_curator_default_config(self):
+        from app.core.curator import Curator
+        curator = Curator()
+        stats = curator.get_stats()
+        assert stats["stale_days"] == 90  # default
+
+
+# ── Search Skill Tests ──
+
+class TestSearchSkill:
+    def test_empty_query(self):
+        import asyncio
+        from app.skills.search_skill import search_skill
+        result = asyncio.get_event_loop().run_until_complete(
+            search_skill.execute("")
+        )
+        assert result.success is False
+        assert "不能为空" in result.error
+
+    def test_whitespace_query(self):
+        import asyncio
+        from app.skills.search_skill import search_skill
+        result = asyncio.get_event_loop().run_until_complete(
+            search_skill.execute("   ")
+        )
+        assert result.success is False
+
+
+# ── Image Skill Tests ──
+
+class TestImageSkill:
+    def test_no_image_provided(self):
+        import asyncio
+        from app.skills.image_skill import image_skill
+        result = asyncio.get_event_loop().run_until_complete(
+            image_skill.execute("describe this image")
+        )
+        assert result.success is False
+        assert "没有提供图片" in result.error
+
+    def test_no_image_in_context(self):
+        import asyncio
+        from app.skills.image_skill import image_skill
+        result = asyncio.get_event_loop().run_until_complete(
+            image_skill.execute("describe", context={})
+        )
+        assert result.success is False

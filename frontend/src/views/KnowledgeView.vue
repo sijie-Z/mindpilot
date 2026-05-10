@@ -137,7 +137,10 @@ async function loadKnowledgeBases() {
   try {
     const res = await api.get('/knowledge/')
     knowledgeBases.value = Array.isArray(res.data) ? res.data : (res.data?.knowledges || res.data?.items || [])
-  } catch { /* fallback */ }
+  } catch (err) {
+    console.warn('Failed to load knowledge bases:', err)
+    ElMessage.warning('加载知识库列表失败')
+  }
   finally { loading.value = false }
 }
 

@@ -119,18 +119,18 @@ class SessionRepository:
             return None
 
     async def list_sessions(
-        self, user_id: str = "anonymous", limit: int = 20
+        self, user_id: str = "anonymous", limit: int = 20, offset: int = 0
     ) -> list[dict[str, Any]]:
-        """List recent sessions for a user."""
+        """List recent sessions for a user with pagination."""
         try:
             async with get_db_session() as db:
                 result = await db.execute(
                     text(
                         "SELECT id, title, created_at, updated_at "
                         "FROM sessions WHERE user_id = :uid AND is_active = TRUE "
-                        "ORDER BY updated_at DESC LIMIT :lim"
+                        "ORDER BY updated_at DESC LIMIT :lim OFFSET :off"
                     ),
-                    {"uid": user_id, "lim": limit},
+                    {"uid": user_id, "lim": limit, "off": offset},
                 )
                 return [
                     {
@@ -144,6 +144,65 @@ class SessionRepository:
         except Exception as e:
             logger.error("Failed to list sessions", error=str(e))
             return []
+
+    async def update_message(self, message_id: str, content: str) -> bool:
+        """Update a message's content."""
+        try:
+            async with get_db_session() as db:
+                await db.execute(
+                    text("UPDATE messages SET content = :content WHERE id = :mid"),
+                    {"content": content, "mid": message_id},
+                )
+            return True
+        except Exception as e:
+            logger.error("Failed to update message", error=str(e))
+            return False
+
+    async def delete_messages_after(self, session_id: str, message_id: str) -> int:
+        """Delete all messages after a given message in a session. Returns count deleted."""
+        try:
+            async with get_db_session() as db:
+                # Get the timestamp of the target message
+                result = await db.execute(
+                    text("SELECT created_at FROM messages WHERE id = :mid"),
+                    {"mid": message_id},
+                )
+                row = result.fetchone()
+                if not row:
+                    return 0
+
+                result = await db.execute(
+                    text("DELETE FROM messages WHERE session_id = :sid AND created_at > :ts"),
+                    {"sid": session_id, "ts": row[0]},
+                )
+                return result.rowcount
+        except Exception as e:
+            logger.error("Failed to delete messages after", error=str(e))
+            return 0
+
+    async def get_message(self, message_id: str) -> dict[str, Any] | None:
+        """Get a single message by ID."""
+        try:
+            async with get_db_session() as db:
+                result = await db.execute(
+                    text("SELECT id, session_id, role, content, metadata, created_at "
+                         "FROM messages WHERE id = :mid"),
+                    {"mid": message_id},
+                )
+                row = result.fetchone()
+                if not row:
+                    return None
+                return {
+                    "id": row[0],
+                    "session_id": row[1],
+                    "role": row[2],
+                    "content": row[3],
+                    "metadata": row[4] if isinstance(row[4], dict) else {},
+                    "created_at": str(row[5]),
+                }
+        except Exception as e:
+            logger.error("Failed to get message", error=str(e))
+            return None
 
     async def delete_session(self, session_id: str) -> bool:
         """Soft-delete a session."""
@@ -234,33 +293,6 @@ class SessionRepository:
         except Exception as e:
             logger.error("Failed to search messages", error=str(e))
             return []
-        """Save RAGAS evaluation results."""
-        try:
-            async with get_db_session() as db:
-                import uuid
-                eval_id = str(uuid.uuid4())
-                await db.execute(
-                    text(
-                        "INSERT INTO evaluations (id, session_id, query, answer, contexts, "
-                        "metrics, faithfulness, answer_relevance, context_precision, latency_ms) "
-                        "VALUES (:id, :sid, :query, :answer, :contexts, :metrics, "
-                        ":faith, :rel, :prec, :lat)"
-                    ),
-                    {
-                        "id": eval_id,
-                        "sid": session_id,
-                        "query": query,
-                        "answer": answer,
-                        "contexts": json.dumps(contexts, ensure_ascii=False),
-                        "metrics": json.dumps(metrics, ensure_ascii=False),
-                        "faith": metrics.get("faithfulness"),
-                        "rel": metrics.get("answer_relevance"),
-                        "prec": metrics.get("context_precision"),
-                        "lat": latency_ms,
-                    },
-                )
-        except Exception as e:
-            logger.error("Failed to save evaluation", error=str(e))
 
 
 # Global instance

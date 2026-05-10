@@ -147,28 +147,57 @@ class CodeExecutionSkill(BaseSkill):
         return {"safe": True, "reason": ""}
 
     def _execute_with_timeout(self, code: str, env: dict, timeout: int = 5) -> Any:
-        """Execute code with timeout protection."""
-        start = time.monotonic()
+        """Execute code in a subprocess with real timeout protection."""
+        import subprocess
+        import sys
 
-        # Try eval first (expressions)
+        # Build a minimal script that runs the code in a restricted env
+        script = (
+            "import math, json, sys\n"
+            "_safe_builtins = {k: __builtins__[k] if isinstance(__builtins__, dict) "
+            "else getattr(__builtins__, k) for k in "
+            "'abs all any bool dict enumerate filter float format int len list map "
+            "max min pow print range repr reversed round set slice sorted str sum tuple zip'.split() "
+            "if (k in __builtins__ if isinstance(__builtins__, dict) else hasattr(__builtins__, k))}\n"
+            "_safe_builtins['__import__'] = None\n"
+            "_env = {'__builtins__': _safe_builtins, 'math': math}\n"
+            f"_code = {code!r}\n"
+            "try:\n"
+            "    _r = eval(_code, _env)\n"
+            "    if _r is not None: print(json.dumps({'ok': True, 'result': str(_r)}))\n"
+            "    else: print(json.dumps({'ok': True, 'result': '执行完成（无返回值）'}))\n"
+            "except SyntaxError:\n"
+            "    _lo = {}\n"
+            "    exec(_code, _env, _lo)\n"
+            "    _v = list(_lo.values())[-1] if _lo else '执行完成（无返回值）'\n"
+            "    print(json.dumps({'ok': True, 'result': str(_v)}))\n"
+            "except Exception as _e:\n"
+            "    print(json.dumps({'ok': False, 'error': str(_e)}))\n"
+        )
+
         try:
-            result = eval(code, env)
-            if time.monotonic() - start > timeout:
-                raise TimeoutError()
-            return result
-        except SyntaxError:
-            pass
-
-        # Try exec (statements)
-        local_vars: dict[str, Any] = {}
-        exec(code, env, local_vars)
-        if time.monotonic() - start > timeout:
+            result = subprocess.run(
+                [sys.executable, "-c", script],
+                capture_output=True, text=True, timeout=timeout,
+            )
+        except subprocess.TimeoutExpired:
             raise TimeoutError()
 
-        # Return the last assigned variable or None
-        if local_vars:
-            return list(local_vars.values())[-1]
-        return "执行完成（无返回值）"
+        if result.returncode != 0:
+            stderr = result.stderr.strip()
+            if "TimeoutError" in stderr:
+                raise TimeoutError()
+            raise RuntimeError(stderr or "执行失败")
+
+        import json as _json
+        try:
+            output = _json.loads(result.stdout.strip().split("\n")[-1])
+        except (ValueError, IndexError):
+            return result.stdout.strip()
+
+        if output.get("ok"):
+            return output["result"]
+        raise RuntimeError(output.get("error", "未知错误"))
 
 
 # Module-level instance for auto-discovery

@@ -68,6 +68,7 @@ class Session(Base):
     user_id = Column(String(36), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
     title = Column(String(200), nullable=True)
     is_active = Column(Boolean, default=True)
+    share_id = Column(String(36), unique=True, nullable=True, index=True)  # Public share link ID
     created_at = Column(DateTime, default=func.now())
     updated_at = Column(DateTime, default=func.now(), onupdate=func.now())
 
@@ -137,9 +138,13 @@ class Document(Base):
     file_path = Column(String(500), nullable=False)
     file_type = Column(String(20), nullable=True)  # pdf, docx, pptx, txt, md
     file_size = Column(Integer, nullable=True)
+    tags = Column(JSON, nullable=True)  # ["tag1", "tag2"]
     status = Column(Enum(DocumentStatus), default=DocumentStatus.PENDING, index=True)
     chunks = Column(Integer, default=0)
     error_message = Column(Text, nullable=True)
+    progress = Column(Integer, default=0)  # 0-100
+    progress_detail = Column(String(200), nullable=True)  # "解析中", "分块中", etc.
+    deleted_at = Column(DateTime, nullable=True, index=True)  # Soft delete
     created_at = Column(DateTime, default=func.now())
     updated_at = Column(DateTime, default=func.now(), onupdate=func.now())
 
@@ -216,4 +221,33 @@ class SkillLog(Base):
     latency_ms = Column(Integer, nullable=True)
     success = Column(Boolean, default=True)
     error_message = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=func.now(), index=True)
+
+
+class PromptTemplate(Base):
+    """User prompt template for quick input."""
+    __tablename__ = "prompt_templates"
+
+    id = Column(String(36), primary_key=True, default=generate_uuid)
+    user_id = Column(String(36), ForeignKey("users.id", ondelete="CASCADE"), nullable=True, index=True)
+    title = Column(String(100), nullable=False)
+    content = Column(Text, nullable=False)
+    category = Column(String(50), default="general")  # general, writing, analysis, code, translate
+    is_builtin = Column(Boolean, default=False)
+    created_at = Column(DateTime, default=func.now())
+    updated_at = Column(DateTime, default=func.now(), onupdate=func.now())
+
+
+class AuditLog(Base):
+    """Audit log for tracking user actions."""
+    __tablename__ = "audit_logs"
+
+    id = Column(String(36), primary_key=True, default=generate_uuid)
+    user_id = Column(String(36), ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
+    username = Column(String(50), nullable=True)
+    action = Column(String(50), nullable=False, index=True)  # login, upload, delete, query, etc.
+    resource_type = Column(String(50), nullable=True)  # document, knowledge, session, etc.
+    resource_id = Column(String(36), nullable=True)
+    detail = Column(Text, nullable=True)
+    ip_address = Column(String(45), nullable=True)
     created_at = Column(DateTime, default=func.now(), index=True)

@@ -15,10 +15,11 @@ from app.agents.graph import run_agent
 from app.agents.intent_agent import intent_node
 from app.agents.retrieval_agent import expand_query, retrieval_node
 from app.agents.state import AgentState
-from app.auth import TokenData, get_optional_user
+from app.auth import TokenData, get_current_user, get_optional_user
 from app.core.container import container as ctx
 from app.core.llm_client import AsyncLLMClient
 from app.core.logger import get_logger
+from app.storage.database import get_db_session
 
 logger = get_logger(__name__)
 router = APIRouter()
@@ -28,13 +29,68 @@ IMAGE_CONTEXT_MAX_LENGTH = 500
 SESSION_TITLE_MAX_LENGTH = 30
 
 
-def build_initial_state(request: ChatRequest, session_id: str, streaming: bool) -> AgentState:
-    """Build initial AgentState from request."""
+async def _generate_session_title(query: str, llm: AsyncLLMClient) -> str | None:
+    """Generate a concise session title from the first user message using LLM."""
+    try:
+        title = await llm.chat(
+            messages=[{
+                "role": "user",
+                "content": (
+                    f"为以下对话生成一个简短标题（不超过20个字），直接输出标题，不要引号或标点：\n{query[:200]}"
+                ),
+            }],
+            max_tokens=50,
+            temperature=0.3,
+        )
+        title = title.strip().strip('"').strip("'").strip("《》").strip()
+        return title[:30] if title else None
+    except Exception as e:
+        logger.warning("Title generation failed", error=str(e))
+        return None
+
+
+async def _update_session_title(session_id: str, query: str, llm: AsyncLLMClient):
+    """Background task: generate and update session title."""
+    title = await _generate_session_title(query, llm)
+    if title:
+        try:
+            from sqlalchemy import text
+            async with get_db_session() as db:
+                await db.execute(
+                    text("UPDATE sessions SET title = :title WHERE id = :sid"),
+                    {"title": title, "sid": session_id},
+                )
+        except Exception as e:
+            logger.warning("Failed to update session title", error=str(e))
+
+
+class ChatRequest(BaseModel):
+    """Chat request model with optional image support."""
+    query: str
+    session_id: str | None = None
+    user_id: str | None = None
+    knowledge_id: str | None = None
+    model: str | None = None  # LLM model to use (e.g., "glm-4-flash", "glm-4-plus")
+    image_url: str | None = None  # Base64 or URL for multimodal queries
+    image_base64: str | None = None  # Direct base64 image data
+
+
+class ChatResponse(BaseModel):
+    """Chat response model."""
+    answer: str
+    sources: list
+    evaluation: dict
+    session_id: str
+
+
+def build_initial_state(request: ChatRequest, session_id: str, streaming: bool, history: list | None = None) -> AgentState:
+    """Build initial AgentState from request with optional conversation history."""
     return {
         "query": request.query,
         "session_id": session_id,
         "user_id": request.user_id or "anonymous",
         "knowledge_id": request.knowledge_id,
+        "model": request.model,
         "streaming": streaming,
         "iterations": 0,
         "retrieval_attempts": 0,
@@ -50,34 +106,36 @@ def build_initial_state(request: ChatRequest, session_id: str, streaming: bool) 
         "sources": [],
         "evaluation": {},
         "status": "thinking",
-        "messages": [],
+        "messages": history or [],
         "created_at": None,
         "latency_ms": 0,
         "max_iterations": 5,
     }
 
 
-class ChatRequest(BaseModel):
-    """Chat request model with optional image support."""
-    query: str
-    session_id: str | None = None
-    user_id: str | None = None
-    knowledge_id: str | None = None
-    image_url: str | None = None  # Base64 or URL for multimodal queries
-    image_base64: str | None = None  # Direct base64 image data
-
-
-class ChatResponse(BaseModel):
-    """Chat response model."""
-    answer: str
-    sources: list
-    evaluation: dict
-    session_id: str
+async def _load_session_history(session_id: str, max_turns: int = 10) -> list[dict]:
+    """Load recent conversation history for context."""
+    try:
+        from sqlalchemy import text
+        async with get_db_session() as db:
+            result = await db.execute(
+                text("SELECT role, content FROM messages "
+                     "WHERE session_id = :sid AND role IN ('user', 'assistant') "
+                     "ORDER BY created_at DESC LIMIT :lim"),
+                {"sid": session_id, "lim": max_turns * 2},
+            )
+            rows = result.fetchall()
+            # Reverse to chronological order
+            return [{"role": r[0], "content": r[1]} for r in reversed(rows)]
+    except Exception:
+        return []
 
 
 async def stream_chat(request: ChatRequest) -> str:
     """SSE streaming chat with real-time status updates."""
     llm = AsyncLLMClient()
+    if request.model:
+        llm._model = request.model
     session_id = request.session_id or str(uuid.uuid4())
 
     # Initialize stream scrubber to prevent context leakage
@@ -87,12 +145,19 @@ async def stream_chat(request: ChatRequest) -> str:
     # Connected
     yield f"data: {json.dumps({'type': 'connected', 'session_id': session_id})}\n\n"
 
-    state = build_initial_state(request, session_id, streaming=True)
+    # Load conversation history for context
+    history = await _load_session_history(session_id) if request.session_id else []
+    state = build_initial_state(request, session_id, streaming=True, history=history)
 
     try:
-        # ── Persist session ──
-        await ctx.session_repo.create_session(session_id, request.user_id or "anonymous", request.query[:SESSION_TITLE_MAX_LENGTH])
+        # ── Persist session (use query snippet as initial title) ──
+        initial_title = request.query[:SESSION_TITLE_MAX_LENGTH]
+        await ctx.session_repo.create_session(session_id, request.user_id or "anonymous", initial_title)
         await ctx.session_repo.add_message(session_id, "user", request.query)
+
+        # ── Generate better title in background ──
+        import asyncio
+        asyncio.create_task(_update_session_title(session_id, request.query, llm))
 
         # ── Step 0: Image processing (if image provided) ──
         image_context = ""
@@ -155,6 +220,18 @@ async def stream_chat(request: ChatRequest) -> str:
             state = await eval_node(state, llm=llm)
             yield f"data: {json.dumps({'type': 'evaluation', 'data': state['evaluation']})}\n\n"
 
+            # Save evaluation to database for analytics dashboard
+            evaluation = state.get("evaluation", {})
+            if evaluation and not evaluation.get("skipped"):
+                await ctx.session_repo.save_evaluation(
+                    session_id=session_id,
+                    query=request.query,
+                    answer=state.get("answer", ""),
+                    contexts=[s.get("content", "")[:200] for s in state.get("sources", [])],
+                    metrics=evaluation,
+                    latency_ms=state.get("latency_ms", 0),
+                )
+
         # ── Persist assistant message ──
         answer_text = state.get("answer", "")
         sources = state.get("sources", [])
@@ -200,16 +277,22 @@ async def chat(
 
     session_id = request.session_id or str(uuid.uuid4())
 
-    state = build_initial_state(request, session_id, streaming=False)
+    # Load conversation history for context
+    history = await _load_session_history(session_id) if request.session_id else []
+    state = build_initial_state(request, session_id, streaming=False, history=history)
 
     try:
         # ── Persist session ──
-        await ctx.session_repo.create_session(session_id, request.user_id or "anonymous", request.query[:SESSION_TITLE_MAX_LENGTH])
-
-        # ── Save user message ──
+        initial_title = request.query[:SESSION_TITLE_MAX_LENGTH]
+        await ctx.session_repo.create_session(session_id, request.user_id or "anonymous", initial_title)
         await ctx.session_repo.add_message(session_id, "user", request.query)
 
-        # ── Run agent graph ──
+        # ── Generate better title in background ──
+        import asyncio
+        llm = AsyncLLMClient()
+        asyncio.create_task(_update_session_title(session_id, request.query, llm))
+
+        # ── Run agent graph (model is passed via state) ──
         result = await run_agent(state, thread_id=session_id)
 
         answer = result.get("answer", "")
@@ -242,14 +325,22 @@ async def chat(
 # ── Session management endpoints ──
 
 @router.get("/sessions")
-async def list_sessions(user_id: str = "anonymous"):
-    """List recent chat sessions."""
-    sessions = await ctx.session_repo.list_sessions(user_id)
-    return {"sessions": sessions}
+async def list_sessions(
+    user_id: str = "anonymous",
+    limit: int = Query(20, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+    current_user: TokenData | None = Depends(get_optional_user),
+):
+    """List recent chat sessions with pagination."""
+    sessions = await ctx.session_repo.list_sessions(user_id, limit=limit, offset=offset)
+    return {"sessions": sessions, "limit": limit, "offset": offset}
 
 
 @router.get("/sessions/{session_id}")
-async def get_session(session_id: str):
+async def get_session(
+    session_id: str,
+    current_user: TokenData | None = Depends(get_optional_user),
+):
     """Get a session with all messages."""
     session = await ctx.session_repo.get_session(session_id)
     if not session:
@@ -258,12 +349,203 @@ async def get_session(session_id: str):
 
 
 @router.delete("/sessions/{session_id}")
-async def delete_session(session_id: str):
+async def delete_session(
+    session_id: str,
+    current_user: TokenData = Depends(get_current_user),
+):
     """Delete (archive) a session."""
     success = await ctx.session_repo.delete_session(session_id)
     if not success:
         raise HTTPException(status_code=500, detail="Failed to delete session")
     return {"status": "deleted", "session_id": session_id}
+
+
+class EditMessageRequest(BaseModel):
+    content: str
+
+
+@router.put("/messages/{message_id}")
+async def edit_message(
+    message_id: str,
+    req: EditMessageRequest,
+    current_user: TokenData | None = Depends(get_optional_user),
+):
+    """Edit a user message and delete all subsequent messages (triggers re-generation)."""
+    msg = await ctx.session_repo.get_message(message_id)
+    if not msg:
+        raise HTTPException(404, "Message not found")
+    if msg["role"] != "user":
+        raise HTTPException(400, "Can only edit user messages")
+
+    # Update the message content
+    success = await ctx.session_repo.update_message(message_id, req.content)
+    if not success:
+        raise HTTPException(500, "Failed to update message")
+
+    # Delete all messages after this one (assistant responses, etc.)
+    deleted = await ctx.session_repo.delete_messages_after(msg["session_id"], message_id)
+
+    return {
+        "status": "updated",
+        "message_id": message_id,
+        "deleted_after": deleted,
+        "session_id": msg["session_id"],
+    }
+
+
+@router.post("/sessions/{session_id}/share")
+async def share_session(
+    session_id: str,
+    current_user: TokenData | None = Depends(get_optional_user),
+):
+    """Create a public share link for a session."""
+    import uuid
+    share_id = str(uuid.uuid4())[:12]
+
+    async with get_db_session() as db:
+        result = await db.execute(
+            text("SELECT id FROM sessions WHERE id = :sid"),
+            {"sid": session_id}
+        )
+        if not result.fetchone():
+            raise HTTPException(404, "Session not found")
+
+        await db.execute(
+            text("UPDATE sessions SET share_id = :share_id WHERE id = :sid"),
+            {"share_id": share_id, "sid": session_id}
+        )
+
+    return {"share_id": share_id, "url": f"/share/{share_id}"}
+
+
+@router.delete("/sessions/{session_id}/share")
+async def unshare_session(
+    session_id: str,
+    current_user: TokenData | None = Depends(get_optional_user),
+):
+    """Remove the share link for a session."""
+    async with get_db_session() as db:
+        await db.execute(
+            text("UPDATE sessions SET share_id = NULL WHERE id = :sid"),
+            {"sid": session_id}
+        )
+    return {"status": "unshared"}
+
+
+@router.get("/share/{share_id}")
+async def get_shared_session(share_id: str):
+    """Get a shared session by its share ID (no auth required)."""
+    async with get_db_session() as db:
+        result = await db.execute(
+            text("SELECT id, title, created_at FROM sessions WHERE share_id = :sid AND is_active = TRUE"),
+            {"sid": share_id}
+        )
+        session = result.fetchone()
+        if not session:
+            raise HTTPException(404, "Shared session not found")
+
+        msgs_result = await db.execute(
+            text("SELECT role, content, metadata, created_at "
+                 "FROM messages WHERE session_id = :sid ORDER BY created_at ASC"),
+            {"sid": session[0]}
+        )
+        messages = [
+            {
+                "role": r[0],
+                "content": r[1],
+                "sources": (r[2] or {}).get("sources", []) if isinstance(r[2], dict) else [],
+                "created_at": str(r[3]),
+            }
+            for r in msgs_result.fetchall()
+        ]
+
+    return {
+        "id": session[0],
+        "title": session[1],
+        "created_at": str(session[2]),
+        "messages": messages,
+    }
+
+
+@router.get("/sessions/{session_id}/export")
+async def export_session(
+    session_id: str,
+    format: str = Query("markdown", regex="^(markdown|json)$"),
+    current_user: TokenData | None = Depends(get_optional_user),
+):
+    """
+    Export a chat session in the specified format.
+
+    Supported formats:
+    - markdown: Human-readable Markdown document
+    - json: Structured JSON with full metadata
+    """
+    session = await ctx.session_repo.get_session(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    if format == "json":
+        from fastapi.responses import JSONResponse
+        return JSONResponse(
+            content=session,
+            headers={
+                "Content-Disposition": f'attachment; filename="chat_{session_id[:8]}.json"'
+            },
+        )
+
+    # Markdown format
+    from fastapi.responses import PlainTextResponse
+
+    lines = []
+    lines.append(f"# {session.get('title', '对话记录')}")
+    lines.append("")
+    lines.append(f"**导出时间**: {datetime.now(UTC).strftime('%Y-%m-%d %H:%M')}")
+    lines.append(f"**会话 ID**: {session_id}")
+    lines.append("")
+    lines.append("---")
+    lines.append("")
+
+    for msg in session.get("messages", []):
+        role = msg.get("role", "unknown")
+        content = msg.get("content", "")
+        created_at = msg.get("created_at", "")
+
+        if role == "user":
+            lines.append(f"## 用户")
+            lines.append(f"*{created_at}*")
+            lines.append("")
+            lines.append(content)
+            lines.append("")
+        elif role == "assistant":
+            lines.append(f"## 助手")
+            lines.append(f"*{created_at}*")
+            lines.append("")
+            lines.append(content)
+            lines.append("")
+
+            # Add sources if available
+            metadata = msg.get("metadata", {})
+            sources = metadata.get("sources", [])
+            if sources:
+                lines.append("### 参考来源")
+                lines.append("")
+                for i, src in enumerate(sources, 1):
+                    filename = src.get("filename", src.get("name", "未知文件"))
+                    score = src.get("score", 0)
+                    lines.append(f"{i}. **{filename}** (相关度: {score:.2f})")
+                lines.append("")
+
+        lines.append("---")
+        lines.append("")
+
+    md_content = "\n".join(lines)
+    return PlainTextResponse(
+        content=md_content,
+        media_type="text/markdown; charset=utf-8",
+        headers={
+            "Content-Disposition": f'attachment; filename="chat_{session_id[:8]}.md"'
+        },
+    )
 
 
 @router.get("/search")

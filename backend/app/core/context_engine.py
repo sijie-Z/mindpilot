@@ -24,6 +24,25 @@ from app.core.logger import get_logger
 
 logger = get_logger(__name__)
 
+
+def estimate_tokens(text: str) -> int:
+    """
+    Estimate token count for mixed Chinese/English text.
+
+    Heuristic:
+    - CJK characters: ~1.5 tokens each (Chinese tokenizers average 1-2)
+    - ASCII words: ~1.3 tokens each (GPT-style BPE average)
+    - Punctuation/whitespace: ~0.5 tokens each
+    Falls back to len/2 for pure content.
+    """
+    if not text:
+        return 0
+    cjk = sum(1 for c in text if '一' <= c <= '鿿')
+    ascii_chars = sum(1 for c in text if c.isascii() and c.strip())
+    other = len(text) - cjk - ascii_chars
+    return int(cjk * 1.5 + ascii_chars * 0.35 + other * 0.5)
+
+
 # Default compression parameters
 DEFAULT_MAX_TOKENS = 8000
 DEFAULT_HEAD_MESSAGES = 2  # Protect system + first user message
@@ -43,8 +62,7 @@ class ContextMessage:
 
     def __post_init__(self) -> None:
         if self.token_estimate == 0:
-            # Rough estimate: 1 token per 2 chars for Chinese, 4 for English
-            self.token_estimate = len(self.content) // 2
+            self.token_estimate = estimate_tokens(self.content)
 
 
 class CompressionStrategy(ABC):

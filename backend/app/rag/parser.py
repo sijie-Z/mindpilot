@@ -120,9 +120,23 @@ class DocumentParser:
         return slides
 
     async def parse_text(self, file_path: str) -> list[dict[str, Any]]:
-        """Parse plain text or markdown."""
-        with open(file_path, encoding="utf-8") as f:
-            text = f.read()
+        """Parse plain text or markdown with encoding detection."""
+        # Try UTF-8 first, fall back to other encodings
+        encodings = ["utf-8", "gbk", "gb2312", "latin-1"]
+        text = None
+
+        for encoding in encodings:
+            try:
+                with open(file_path, encoding=encoding) as f:
+                    text = f.read()
+                break
+            except UnicodeDecodeError:
+                continue
+
+        if text is None:
+            # Last resort: read as bytes and decode with errors='replace'
+            with open(file_path, "rb") as f:
+                text = f.read().decode("utf-8", errors="replace")
 
         return [{"page": 1, "text": text, "tables": []}]
 
@@ -140,24 +154,27 @@ class DocumentParser:
         for i, page in enumerate(doc):
             # Convert page to image
             pix = page.get_pixmap(dpi=300)
-            with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp:
-                img_path = tmp.name
-            pix.save(img_path)
+            img_path = None
+            try:
+                with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp:
+                    img_path = tmp.name
+                pix.save(img_path)
 
-            # Run OCR
-            result = ocr.ocr(img_path, cls=True)
-            text = ""
-            for line in result:
-                for item in line:
-                    text += item[1][0] + "\n"
+                # Run OCR
+                result = ocr.ocr(img_path, cls=True)
+                text = ""
+                for line in result:
+                    for item in line:
+                        text += item[1][0] + "\n"
 
-            pages.append({
-                "page": i + 1,
-                "text": text,
-                "tables": [],
-            })
-
-            # Cleanup temp file
-            os.remove(img_path)
+                pages.append({
+                    "page": i + 1,
+                    "text": text,
+                    "tables": [],
+                })
+            finally:
+                # Cleanup temp file even on exception
+                if img_path and os.path.exists(img_path):
+                    os.remove(img_path)
 
         return pages

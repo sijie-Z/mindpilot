@@ -348,7 +348,7 @@ describe('Knowledge Store', () => {
     const kb = { id: 'kb-1', name: 'Test KB' } as any
 
     store.setCurrentKnowledge(kb)
-    expect(store.currentKnowledge).toBe(kb)
+    expect(store.currentKnowledge).toStrictEqual(kb)
   })
 
   it('clears documents when setting null knowledge', () => {

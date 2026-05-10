@@ -461,17 +461,17 @@ python bot.py
 ```bash
 # 后端测试
 cd mindpilot/backend
-pytest tests/ -v -m "not integration"  # 单元测试
-pytest tests/ -v --cov=app             # 覆盖率
+pytest tests/ -v -m "not integration"  # 单元测试 (293 passed)
+pytest tests/ -v --cov=app             # 覆盖率 (74%)
 
 # 前端测试
 cd mindpilot/frontend
-npm test                               # 运行测试
+npm test                               # 运行测试 (64 passed)
 npm run test:watch                     # 监听模式
 npm run test:coverage                  # 覆盖率报告
 ```
 
 ---
 
-*文档版本：v3.0*
-*更新时间：2026-05-08*
+*文档版本：v3.2*
+*更新时间：2026-05-09*

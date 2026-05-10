@@ -96,16 +96,9 @@ class StreamScrubber:
         if not self._buffer:
             return ""
 
-        # Check for code block start
+        # Check for code block start/end
         code_start = self._buffer.find("```")
         if code_start != -1:
-            # Check if it's a closing code block
-            if self._code_block_depth > 0:
-                self._state = ScrubState.IN_CODE_BLOCK
-                before = self._buffer[:code_start]
-                self._buffer = self._buffer[code_start:]
-                return self._scrub_text(before)
-
             self._code_block_depth += 1
             self._state = ScrubState.IN_CODE_BLOCK
             before = self._buffer[:code_start]
@@ -166,8 +159,11 @@ class StreamScrubber:
                     self._state = ScrubState.NORMAL
                     return self._scrub_json(json_str)
 
-        # Incomplete JSON, hold in buffer
-        return ""
+        # Incomplete JSON — flush as text to avoid blocking the stream
+        result = self._scrub_text(self._buffer)
+        self._buffer = ""
+        self._state = ScrubState.NORMAL
+        return result
 
     def _process_system_leak(self) -> str:
         """Process buffer to skip system prompt leak."""

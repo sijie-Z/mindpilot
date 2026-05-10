@@ -142,6 +142,8 @@ def upgrade() -> None:
         sa.Column("top_k", sa.Integer(), default=10),
         sa.Column("rerank_enabled", sa.Boolean(), default=True),
         sa.Column("self_rag_enabled", sa.Boolean(), default=True),
+        sa.Column("llm_model", sa.String(50), default="glm-4-flash"),
+        sa.Column("embedding_model", sa.String(50), default="embedding-3"),
         sa.Column("created_at", sa.DateTime(), server_default=sa.func.now()),
         sa.Column("updated_at", sa.DateTime(), server_default=sa.func.now(), onupdate=sa.func.now()),
     )

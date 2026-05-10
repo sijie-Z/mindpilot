@@ -147,19 +147,12 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         self.key_func = key_func or self._default_key_func
 
     def _default_key_func(self, request: Request) -> str:
-        """Generate rate limit key from request."""
-        # Use IP address as default key
+        """Generate rate limit key from request (IP-based only)."""
         forwarded = request.headers.get("X-Forwarded-For")
         if forwarded:
             ip = forwarded.split(",")[0].strip()
         else:
             ip = request.client.host if request.client else "unknown"
-
-        # Include user ID if authenticated
-        user_id = request.headers.get("X-User-ID", "")
-        if user_id:
-            return f"rate_limit:user:{user_id}"
-
         return f"rate_limit:ip:{ip}"
 
     def _get_limit_for_path(self, path: str) -> tuple:
@@ -229,8 +222,8 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         response = await call_next(request)
 
         # Add rate limit headers to response
-        for key, value in headers.items():
-            response.headers[key] = value
+        for header_key, header_value in headers.items():
+            response.headers[header_key] = header_value
 
         return response
 

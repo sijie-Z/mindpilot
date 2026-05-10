@@ -124,6 +124,8 @@ CREATE TABLE IF NOT EXISTS retrieval_configs (
     top_k INT DEFAULT 10,
     rerank_enabled BOOLEAN DEFAULT TRUE,
     self_rag_enabled BOOLEAN DEFAULT TRUE,
+    llm_model VARCHAR(50) DEFAULT 'glm-4-flash',
+    embedding_model VARCHAR(50) DEFAULT 'embedding-3',
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,

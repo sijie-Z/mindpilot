@@ -33,6 +33,7 @@ class AgentState(TypedDict):
     session_id: str
     user_id: str
     knowledge_id: str | None
+    model: str | None  # LLM model to use for this request
 
     # ── Intent ──
     intent: str

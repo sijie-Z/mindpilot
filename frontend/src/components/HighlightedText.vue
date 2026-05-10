@@ -78,7 +78,7 @@ function highlightBySentences(text: string, topSentences: string[]): string {
 
   for (const sentence of topSentences) {
     const escaped = escapeHtml(sentence)
-    // Use regex to find and highlight the sentence
+    // Use regex to find and highlight the sentence (case-insensitive for partial matches)
     const regex = new RegExp(escapeRegex(escaped), 'gi')
     result = result.replace(
       regex,
@@ -90,9 +90,13 @@ function highlightBySentences(text: string, topSentences: string[]): string {
 }
 
 function escapeHtml(text: string): string {
-  const div = document.createElement('div')
-  div.textContent = text
-  return div.innerHTML
+  if (!text) return ''
+  return text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;')
 }
 
 function escapeRegex(str: string): string {

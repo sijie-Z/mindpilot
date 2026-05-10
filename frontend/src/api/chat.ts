@@ -10,7 +10,7 @@ export interface ChatMessage {
 
 export interface SSEData {
   type: 'connected' | 'status' | 'intent' | 'expansion' | 'retrieval' | 'rerank' | 'answer' | 'source' | 'evaluation' | 'done' | 'error'
-  content?: string
+  content?: string | string[]
   chunk?: boolean
   count?: number
   top_k?: number
@@ -31,9 +31,12 @@ export interface StreamController {
 export const chatApi = {
   /**
    * Start a streaming chat request. Returns a controller to abort the stream.
+   * Includes timeout protection to prevent loading state from getting stuck.
    */
   streamChat(message: ChatMessage, handlers: ChatHandlers): StreamController {
     const controller = new AbortController()
+    let timeoutId: ReturnType<typeof setTimeout> | null = null
+    let isCompleted = false
 
     const token = localStorage.getItem('token')
     const headers: Record<string, string> = {
@@ -43,7 +46,20 @@ export const chatApi = {
       headers['Authorization'] = `Bearer ${token}`
     }
 
+    // Reset timeout on any activity
+    const resetTimeout = () => {
+      if (timeoutId) clearTimeout(timeoutId)
+      timeoutId = setTimeout(() => {
+        if (!isCompleted) {
+          isCompleted = true
+          controller.abort()
+          handlers.onError?.(new Error('请求超时，请重试'))
+        }
+      }, 120000) // 2 minute timeout
+    }
+
     ;(async () => {
+      resetTimeout()
       try {
         const response = await fetch('/api/chat/stream', {
           method: 'POST',
@@ -69,6 +85,7 @@ export const chatApi = {
             const { done, value } = await reader.read()
             if (done) break
 
+            resetTimeout() // Reset timeout on data receive
             buffer += decoder.decode(value, { stream: true })
 
             // Process complete lines
@@ -97,21 +114,96 @@ export const chatApi = {
             }
           }
         } catch (error) {
-          if ((error as Error).name === 'AbortError') return
-          handlers.onError?.(error as Error)
+          if ((error as Error).name === 'AbortError') {
+            if (!isCompleted) {
+              isCompleted = true
+              handlers.onError?.(new Error('请求已取消'))
+            }
+            return
+          }
           throw error
         }
       } catch (error) {
-        if ((error as Error).name === 'AbortError') return
-        handlers.onError?.(error as Error)
+        if (!isCompleted) {
+          isCompleted = true
+          if ((error as Error).name === 'AbortError') return
+          handlers.onError?.(error as Error)
+        }
+      } finally {
+        if (timeoutId) clearTimeout(timeoutId)
       }
     })()
 
-    return { abort: () => controller.abort() }
+    return {
+      abort: () => {
+        isCompleted = true
+        if (timeoutId) clearTimeout(timeoutId)
+        controller.abort()
+      }
+    }
   },
 
   async chat(message: ChatMessage): Promise<unknown> {
     const response = await api.post('/chat/', message)
+    return response.data
+  },
+
+  /**
+   * Export a chat session as a file download.
+   * @param sessionId - The session to export
+   * @param format - 'markdown' or 'json'
+   */
+  async exportSession(sessionId: string, format: 'markdown' | 'json' = 'markdown'): Promise<void> {
+    const token = localStorage.getItem('token')
+    const headers: Record<string, string> = {}
+    if (token) {
+      headers['Authorization'] = `Bearer ${token}`
+    }
+
+    const response = await fetch(`/api/chat/sessions/${sessionId}/export?format=${format}`, {
+      method: 'GET',
+      headers,
+    })
+
+    if (!response.ok) {
+      throw new Error(`Export failed: ${response.status}`)
+    }
+
+    // Trigger file download
+    const blob = await response.blob()
+    const ext = format === 'json' ? 'json' : 'md'
+    const filename = `chat_${sessionId.slice(0, 8)}.${ext}`
+
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = filename
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    URL.revokeObjectURL(url)
+  },
+
+  /**
+   * Create a share link for a session.
+   */
+  async shareSession(sessionId: string): Promise<{ share_id: string; url: string }> {
+    const response = await api.post(`/chat/sessions/${sessionId}/share`)
+    return response.data
+  },
+
+  /**
+   * Remove share link for a session.
+   */
+  async unshareSession(sessionId: string): Promise<void> {
+    await api.delete(`/chat/sessions/${sessionId}/share`)
+  },
+
+  /**
+   * Get shared session by share ID.
+   */
+  async getSharedSession(shareId: string): Promise<Record<string, unknown>> {
+    const response = await api.get(`/chat/share/${shareId}`)
     return response.data
   },
 }

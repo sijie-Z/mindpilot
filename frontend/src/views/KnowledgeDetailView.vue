@@ -67,23 +67,53 @@
           <p>暂无文档</p>
           <button class="btn-primary" @click="showUpload = true">上传文档</button>
         </div>
-        <div v-else class="doc-list">
-          <div v-for="doc in documents" :key="doc.id" class="doc-item">
-            <div class="doc-icon">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--color-primary)" stroke-width="2">
-                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/>
-              </svg>
+        <div v-else>
+          <!-- Batch actions bar -->
+          <div class="batch-bar">
+            <label class="batch-select-all">
+              <input type="checkbox" :checked="allSelected" @change="toggleSelectAll" />
+              <span>全选</span>
+            </label>
+            <div v-if="selectedDocs.length > 0" class="batch-actions">
+              <span class="batch-count">已选 {{ selectedDocs.length }} 项</span>
+              <button class="btn-danger-sm" @click="handleBatchDelete">批量删除</button>
             </div>
-            <div class="doc-info">
-              <span class="doc-name">{{ doc.filename || doc.name }}</span>
-              <span class="doc-meta">{{ formatSize(doc.file_size) }} · {{ doc.chunks || doc.chunk_count || 0 }} 片段</span>
+          </div>
+          <div class="doc-list">
+            <div v-for="doc in documents" :key="doc.id" class="doc-item">
+              <input type="checkbox" :checked="selectedDocs.includes(doc.id)" @change="toggleSelect(doc.id)" class="doc-checkbox" />
+              <div class="doc-icon">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--color-primary)" stroke-width="2">
+                  <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/>
+                </svg>
+              </div>
+              <div class="doc-info">
+                <span class="doc-name">{{ doc.filename || doc.name }}</span>
+                <span class="doc-meta">{{ formatSize(doc.file_size) }} · {{ doc.chunks || doc.chunk_count || 0 }} 片段</span>
+                <!-- Tags -->
+                <div class="doc-tags">
+                  <span v-for="tag in (doc.tags || [])" :key="tag" class="tag-chip">
+                    {{ tag }}
+                    <button class="tag-remove" @click.stop="removeTag(doc.id, tag)">&times;</button>
+                  </span>
+                  <button class="tag-add-btn" @click="startAddTag(doc.id)" title="添加标签">+</button>
+                </div>
+              </div>
+              <span class="doc-status" :class="doc.status">{{ statusLabel(doc.status) }}</span>
+              <button class="doc-action" @click="handleDeleteDoc(doc.id)" title="删除">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+                </svg>
+              </button>
             </div>
-            <span class="doc-status" :class="doc.status">{{ statusLabel(doc.status) }}</span>
-            <button class="doc-action" @click="handleDeleteDoc(doc.id)" title="删除">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
-              </svg>
-            </button>
+            <!-- Progress bar for processing documents (rendered below list) -->
+            <div v-for="doc in documents.filter(d => d.status === 'processing')" :key="'progress-' + doc.id" class="doc-progress">
+              <span class="progress-label">{{ doc.filename }}:</span>
+              <div class="progress-bar">
+                <div class="progress-fill" :style="{ width: (doc.progress || 0) + '%' }"></div>
+              </div>
+              <span class="progress-text">{{ doc.progress_detail || '处理中...' }} {{ doc.progress || 0 }}%</span>
+            </div>
           </div>
         </div>
       </template>
@@ -206,6 +236,30 @@
         </div>
       </div>
     </div>
+
+    <!-- Tag Input Modal -->
+    <div v-if="showTagInput" class="modal-overlay" @click.self="showTagInput = false">
+      <div class="modal-panel modal-sm">
+        <div class="modal-header">
+          <h2>添加标签</h2>
+          <button class="modal-close" @click="showTagInput = false">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+            </svg>
+          </button>
+        </div>
+        <div class="modal-body">
+          <input v-model="newTag" placeholder="输入标签名称..." @keyup.enter="confirmAddTag" class="tag-input" />
+          <div class="tag-suggestions">
+            <span v-for="t in commonTags" :key="t" class="tag-suggestion" @click="newTag = t">{{ t }}</span>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn-secondary" @click="showTagInput = false">取消</button>
+          <button class="btn-primary" @click="confirmAddTag">添加</button>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -229,6 +283,68 @@ const uploading = ref(false)
 const uploadProgress = ref(0)
 const fileInput = ref<HTMLInputElement>()
 
+// Batch operations
+const selectedDocs = ref<string[]>([])
+const allSelected = computed(() => documents.value.length > 0 && selectedDocs.value.length === documents.value.length)
+
+function toggleSelect(docId: string) {
+  const idx = selectedDocs.value.indexOf(docId)
+  if (idx >= 0) selectedDocs.value.splice(idx, 1)
+  else selectedDocs.value.push(docId)
+}
+
+function toggleSelectAll() {
+  if (allSelected.value) selectedDocs.value = []
+  else selectedDocs.value = documents.value.map(d => d.id)
+}
+
+async function handleBatchDelete() {
+  if (selectedDocs.value.length === 0) return
+  if (!confirm(`确定删除选中的 ${selectedDocs.value.length} 个文档？`)) return
+  try {
+    await api.post('/document/batch-delete', { doc_ids: selectedDocs.value })
+    documents.value = documents.value.filter(d => !selectedDocs.value.includes(d.id))
+    selectedDocs.value = []
+    ElMessage.success('批量删除成功')
+  } catch { ElMessage.error('批量删除失败') }
+}
+
+// Tag management
+const showTagInput = ref(false)
+const newTag = ref('')
+const tagTargetDocId = ref('')
+const commonTags = ['重要', '待审核', '已归档', '参考', '技术', '业务']
+
+function startAddTag(docId: string) {
+  tagTargetDocId.value = docId
+  newTag.value = ''
+  showTagInput.value = true
+}
+
+async function confirmAddTag() {
+  if (!newTag.value.trim()) return
+  const docId = tagTargetDocId.value
+  const doc = documents.value.find(d => d.id === docId)
+  if (!doc) return
+  const tags = [...(doc.tags || []), newTag.value.trim()]
+  try {
+    await api.put(`/document/${docId}/tags`, { tags })
+    doc.tags = tags
+    showTagInput.value = false
+    ElMessage.success('标签已添加')
+  } catch { ElMessage.error('添加标签失败') }
+}
+
+async function removeTag(docId: string, tag: string) {
+  const doc = documents.value.find(d => d.id === docId)
+  if (!doc) return
+  const tags = (doc.tags || []).filter((t: string) => t !== tag)
+  try {
+    await api.put(`/document/${docId}/tags`, { tags })
+    doc.tags = tags
+  } catch { ElMessage.error('删除标签失败') }
+}
+
 const chunkSearch = ref('')
 const chunkResults = ref<any[]>([])
 const testQuery = ref('')
@@ -249,11 +365,14 @@ async function loadData() {
   try {
     const [kbRes, docRes] = await Promise.all([
       api.get(`/knowledge/${kbId}`),
-      api.get('/document/list', { params: { knowledge_id: kbId } }),
+      api.get(`/knowledge/${kbId}/documents`),
     ])
     kb.value = kbRes.data
     documents.value = docRes.data?.documents || docRes.data || []
-  } catch { /* unavailable */ }
+  } catch (err) {
+    console.error('Failed to load knowledge base data:', err)
+    ElMessage.error('加载知识库数据失败')
+  }
   finally { loading.value = false }
 }
 
@@ -445,6 +564,29 @@ function statusLabel(s: string) {
 .doc-status.processing { background: #fef3c7; color: #d97706; }
 .doc-status.failed { background: #fee2e2; color: #dc2626; }
 .doc-status.pending { background: var(--color-bg-tertiary); color: var(--color-text-tertiary); }
+
+/* Document progress */
+.doc-progress {
+  margin-top: var(--space-2);
+  padding-left: calc(28px + var(--space-3));
+}
+.progress-bar {
+  height: 4px;
+  background: var(--color-bg-tertiary);
+  border-radius: var(--radius-full);
+  overflow: hidden;
+  margin-bottom: var(--space-1);
+}
+.progress-fill {
+  height: 100%;
+  background: var(--color-primary);
+  border-radius: var(--radius-full);
+  transition: width 0.3s ease;
+}
+.progress-text {
+  font-size: var(--text-xs);
+  color: var(--color-text-tertiary);
+}
 .doc-action {
   opacity: 0; display: flex; padding: var(--space-1); background: none; border: none;
   border-radius: var(--radius-sm); color: var(--color-text-tertiary); cursor: pointer; transition: all var(--transition-fast);
@@ -535,4 +677,71 @@ function statusLabel(s: string) {
 .result-score { font-weight: var(--font-semibold); color: var(--color-primary); font-size: var(--text-xs); }
 .result-file { font-size: var(--text-xs); color: var(--color-text-tertiary); }
 .result-content { font-size: var(--text-sm); color: var(--color-text); line-height: var(--leading-normal); }
+
+/* Batch operations */
+.batch-bar {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: var(--space-3) var(--space-4);
+  background: var(--color-bg-secondary); border-radius: var(--radius-md);
+  margin-bottom: var(--space-4);
+}
+.batch-select-all {
+  display: flex; align-items: center; gap: var(--space-2);
+  font-size: var(--text-sm); color: var(--color-text-secondary); cursor: pointer;
+}
+.batch-select-all input { accent-color: var(--color-primary); }
+.batch-actions { display: flex; align-items: center; gap: var(--space-3); }
+.batch-count { font-size: var(--text-sm); color: var(--color-primary); font-weight: var(--font-medium); }
+.btn-danger-sm {
+  padding: var(--space-1) var(--space-3);
+  background: var(--color-error); color: white; border: none;
+  border-radius: var(--radius-sm); font-size: var(--text-xs); cursor: pointer;
+}
+.btn-danger-sm:hover { opacity: 0.9; }
+.doc-checkbox { accent-color: var(--color-primary); cursor: pointer; }
+
+/* Tags */
+.doc-tags {
+  display: flex; flex-wrap: wrap; gap: var(--space-1); margin-top: var(--space-1);
+}
+.tag-chip {
+  display: inline-flex; align-items: center; gap: 2px;
+  padding: 1px 6px; background: var(--color-primary-light); color: var(--color-primary);
+  border-radius: var(--radius-full); font-size: 10px; font-weight: var(--font-medium);
+}
+.tag-remove {
+  background: none; border: none; color: var(--color-primary);
+  cursor: pointer; font-size: 12px; line-height: 1; padding: 0 2px;
+}
+.tag-remove:hover { color: var(--color-error); }
+.tag-add-btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 18px; height: 18px; border-radius: 50%;
+  background: var(--color-bg-tertiary); border: 1px dashed var(--color-border);
+  color: var(--color-text-tertiary); font-size: 12px; cursor: pointer;
+}
+.tag-add-btn:hover { border-color: var(--color-primary); color: var(--color-primary); }
+
+.modal-sm .modal-panel { max-width: 360px; }
+.tag-input {
+  width: 100%; padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-border); border-radius: var(--radius-md);
+  font-size: var(--text-sm); color: var(--color-text); outline: none;
+  font-family: var(--font-sans);
+}
+.tag-input:focus { border-color: var(--color-primary); }
+.tag-suggestions {
+  display: flex; flex-wrap: wrap; gap: var(--space-2); margin-top: var(--space-3);
+}
+.tag-suggestion {
+  padding: var(--space-1) var(--space-3);
+  background: var(--color-bg-secondary); border: 1px solid var(--color-border);
+  border-radius: var(--radius-full); font-size: var(--text-xs);
+  color: var(--color-text-secondary); cursor: pointer;
+}
+.tag-suggestion:hover { border-color: var(--color-primary); color: var(--color-primary); }
+.modal-footer {
+  display: flex; justify-content: flex-end; gap: var(--space-3);
+  padding: var(--space-4); border-top: 1px solid var(--color-border);
+}
 </style>

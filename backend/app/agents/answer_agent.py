@@ -81,8 +81,7 @@ async def generate_answer(
         self_rag = SelfRAG(llm)
 
         prompt = build_rag_prompt(query, docs)
-        from app.config import settings
-        answer = await llm.chat(messages=[{"role": "user", "content": prompt}], model=settings.LLM_MODEL)
+        answer = await llm.chat(messages=[{"role": "user", "content": prompt}])
         result = await self_rag.evaluate_and_correct(query, answer, docs)
         return {
             "answer": result["final_answer"],
@@ -157,12 +156,16 @@ async def answer_node(state: AgentState, llm: AsyncLLMClient | None = None) -> A
                 answer = f"未找到处理 {intent} 的技能"
 
         else:
-            # General chat
-            from app.config import settings
-            answer = await llm.chat(
-                messages=[{"role": "user", "content": query}],
-                model=settings.LLM_MODEL,
-            )
+            # General chat with conversation history
+            messages = []
+            for msg in state.get("messages", []):
+                if msg.get("role") in ("user", "assistant"):
+                    messages.append({"role": msg["role"], "content": msg["content"]})
+            messages.append({"role": "user", "content": query})
+            # Keep context manageable
+            if len(messages) > 20:
+                messages = messages[-20:]
+            answer = await llm.chat(messages=messages)
 
     except Exception as e:
         logger.error("Answer generation failed", intent=intent, error=str(e))

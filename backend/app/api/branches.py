@@ -8,10 +8,11 @@ import json
 import uuid
 from datetime import UTC, datetime
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy import text
 
+from app.auth import TokenData, get_current_user
 from app.core.logger import get_logger
 from app.storage.database import get_db_session
 
@@ -43,7 +44,10 @@ class BranchResponse(BaseModel):
 
 
 @router.post("/create")
-async def create_branch(request: BranchCreateRequest):
+async def create_branch(
+    request: BranchCreateRequest,
+    current_user: TokenData = Depends(get_current_user),
+):
     """
     Create a new branch from a specific message.
 
@@ -73,11 +77,11 @@ async def create_branch(request: BranchCreateRequest):
                 {"id": branch_id, "sid": request.session_id, "pid": request.message_id, "name": branch_name},
             )
 
-            # Copy messages up to the branch point
+            # Copy messages up to the branch point (generate new IDs to avoid PK conflicts)
             await db.execute(
                 text(
                     "INSERT INTO messages (id, session_id, role, content, metadata, branch_id, created_at) "
-                    "SELECT id, session_id, role, content, metadata, :branch_id, created_at "
+                    "SELECT UUID(), session_id, role, content, metadata, :branch_id, created_at "
                     "FROM messages WHERE session_id = :sid AND created_at <= "
                     "(SELECT created_at FROM messages WHERE id = :mid) "
                     "ORDER BY created_at ASC"
@@ -109,7 +113,10 @@ async def create_branch(request: BranchCreateRequest):
 
 
 @router.get("/list/{session_id}")
-async def list_branches(session_id: str):
+async def list_branches(
+    session_id: str,
+    current_user: TokenData = Depends(get_current_user),
+):
     """List all branches for a session."""
     try:
         async with get_db_session() as db:
@@ -153,7 +160,10 @@ async def list_branches(session_id: str):
 
 
 @router.get("/{branch_id}")
-async def get_branch(branch_id: str):
+async def get_branch(
+    branch_id: str,
+    current_user: TokenData = Depends(get_current_user),
+):
     """Get branch messages."""
     try:
         async with get_db_session() as db:
@@ -207,7 +217,10 @@ async def get_branch(branch_id: str):
 
 
 @router.delete("/{branch_id}")
-async def delete_branch(branch_id: str):
+async def delete_branch(
+    branch_id: str,
+    current_user: TokenData = Depends(get_current_user),
+):
     """Delete a branch and its messages."""
     try:
         async with get_db_session() as db:
@@ -230,7 +243,10 @@ async def delete_branch(branch_id: str):
 
 
 @router.post("/switch")
-async def switch_branch(request: BranchSwitchRequest):
+async def switch_branch(
+    request: BranchSwitchRequest,
+    current_user: TokenData = Depends(get_current_user),
+):
     """
     Switch to a different branch.
 

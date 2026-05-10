@@ -52,6 +52,8 @@ class HybridRetriever:
         query: str,
         knowledge_id: str = "",
         top_k: int = 10,
+        vector_weight: float | None = None,
+        bm25_weight: float | None = None,
     ) -> list[dict[str, Any]]:
         """
         Hybrid search pipeline:
@@ -60,8 +62,19 @@ class HybridRetriever:
         3. BM25 via MySQL ngram
         4. RRF fusion
         5. Fetch content from MySQL for reranking
+
+        Args:
+            query: Search query
+            knowledge_id: Optional knowledge base filter
+            top_k: Number of results to return
+            vector_weight: Override default vector weight for this request
+            bm25_weight: Override default BM25 weight for this request
         """
         from app.rag.embedder import embedder
+
+        # Use per-request weights or fall back to instance defaults
+        req_vector_weight = vector_weight if vector_weight is not None else self.vector_weight
+        req_bm25_weight = bm25_weight if bm25_weight is not None else self.bm25_weight
 
         # Step 1: Get query embedding
         query_embedding = await embedder.embed_query(query)
@@ -87,7 +100,7 @@ class HybridRetriever:
         bm25_ids = await self._bm25_search(query, knowledge_id)
 
         # Step 4: RRF fusion
-        fused = self._rrf_fusion(vector_ids, bm25_ids)
+        fused = self._rrf_fusion(vector_ids, bm25_ids, req_vector_weight, req_bm25_weight)
 
         # Step 5: Fetch content from MySQL
         fused_ids = [chunk_id for chunk_id, _ in fused]
@@ -108,27 +121,37 @@ class HybridRetriever:
     ) -> list[str]:
         """
         BM25 search using MySQL fulltext index with ngram parser.
-        Supports Chinese tokenization.
+
+        Uses BOOLEAN MODE for better Chinese short-word support.
+        NATURAL LANGUAGE MODE has minimum word-length filtering that
+        can miss short Chinese terms (e.g. 2-char words with ngram).
         """
         try:
             from sqlalchemy import text
 
             from app.storage.database import get_db_session
 
+            # Build boolean query: each term gets a + prefix (AND logic)
+            # This bypasses MySQL's ft_min_word_len filtering
+            terms = [t.strip() for t in query.split() if t.strip()]
+            if not terms:
+                return []
+            bool_query = " ".join(f"+{t}" for t in terms)
+
             async with get_db_session() as db:
                 if knowledge_id:
                     result = await db.execute(
                         text("SELECT c.id FROM chunks c "
                              "JOIN documents d ON c.doc_id = d.id "
-                             "WHERE MATCH(c.content) AGAINST(:query IN NATURAL LANGUAGE MODE) "
+                             "WHERE MATCH(c.content) AGAINST(:query IN BOOLEAN MODE) "
                              "AND d.knowledge_id = :kid LIMIT :lim"),
-                        {"query": query, "kid": knowledge_id, "lim": limit}
+                        {"query": bool_query, "kid": knowledge_id, "lim": limit}
                     )
                 else:
                     result = await db.execute(
                         text("SELECT id FROM chunks WHERE MATCH(content) "
-                             "AGAINST(:query IN NATURAL LANGUAGE MODE) LIMIT :lim"),
-                        {"query": query, "lim": limit}
+                             "AGAINST(:query IN BOOLEAN MODE) LIMIT :lim"),
+                        {"query": bool_query, "lim": limit}
                     )
                 return [row[0] for row in result.fetchall()]
         except Exception as e:
@@ -139,6 +162,8 @@ class HybridRetriever:
         self,
         vector_results: list[tuple[str, float]],
         bm25_results: list[str],
+        vector_weight: float | None = None,
+        bm25_weight: float | None = None,
         k: int = 60,
     ) -> list[tuple[str, float]]:
         """
@@ -149,18 +174,21 @@ class HybridRetriever:
 
         k=60 is standard, prevents division by zero.
         """
+        vw = vector_weight if vector_weight is not None else self.vector_weight
+        bw = bm25_weight if bm25_weight is not None else self.bm25_weight
+
         scores = {}
 
         # Vector search results (already scored)
         for chunk_id, vec_score in vector_results:
             scores[chunk_id] = scores.get(chunk_id, 0) + (
-                self.vector_weight * vec_score / (1 + k)
+                vw * vec_score / (1 + k)
             )
 
         # BM25 results (rank-based scoring)
         for rank, chunk_id in enumerate(bm25_results):
             scores[chunk_id] = scores.get(chunk_id, 0) + (
-                self.bm25_weight / (rank + k)
+                bw / (rank + k)
             )
 
         # Sort by fused score descending

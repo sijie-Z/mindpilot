@@ -85,6 +85,77 @@
         </div>
       </div>
 
+      <!-- System Settings -->
+      <div v-if="activeTab === 'system'" class="panel">
+        <h2>系统参数</h2>
+        <div class="settings-grid">
+          <div class="setting-item" v-for="(val, key) in systemSettings" :key="key">
+            <span class="setting-key">{{ key }}</span>
+            <span class="setting-val">{{ val }}</span>
+          </div>
+        </div>
+        <div class="form-actions">
+          <button class="btn-secondary" @click="loadSystemSettings">刷新</button>
+        </div>
+      </div>
+
+      <!-- API Key Management -->
+      <div v-if="activeTab === 'apikey'" class="panel">
+        <h2>API Key 管理</h2>
+        <p class="panel-desc">API Key 用于通过 API 接口访问 MindPilot 服务。</p>
+        <div class="apikey-section">
+          <div v-if="myApiKey" class="apikey-display">
+            <label>您的 API Key</label>
+            <div class="apikey-row">
+              <code class="apikey-value">{{ myApiKey }}</code>
+              <button class="btn-secondary" @click="copyApiKey">复制</button>
+            </div>
+            <p class="apikey-warn">请妥善保管，此 Key 仅显示一次。</p>
+          </div>
+          <div v-else class="apikey-empty">
+            <p>您还没有 API Key。</p>
+          </div>
+          <div class="apikey-actions">
+            <button class="btn-primary" @click="generateApiKey">
+              {{ myApiKey ? '重新生成' : '生成 API Key' }}
+            </button>
+            <button v-if="myApiKey" class="btn-danger" @click="revokeApiKey">撤销 Key</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Audit Logs -->
+      <div v-if="activeTab === 'audit'" class="panel">
+        <h2>操作日志</h2>
+        <div class="audit-toolbar">
+          <select v-model="auditFilter" @change="loadAuditLogs">
+            <option value="">全部操作</option>
+            <option value="login">登录</option>
+            <option value="register">注册</option>
+            <option value="document_upload">文档上传</option>
+            <option value="document_delete">文档删除</option>
+          </select>
+          <button class="btn-secondary" @click="loadAuditLogs">刷新</button>
+        </div>
+        <div class="audit-table">
+          <div class="audit-header">
+            <span>时间</span><span>用户</span><span>操作</span><span>详情</span>
+          </div>
+          <div v-for="log in auditLogs" :key="log.id" class="audit-row">
+            <span class="audit-time">{{ formatTime(log.created_at) }}</span>
+            <span class="audit-user">{{ log.username || '-' }}</span>
+            <span class="audit-action">{{ log.action }}</span>
+            <span class="audit-detail">{{ log.detail || '-' }}</span>
+          </div>
+          <div v-if="auditLogs.length === 0" class="audit-empty">暂无日志</div>
+        </div>
+        <div class="audit-pagination" v-if="auditTotal > 20">
+          <button class="btn-secondary" :disabled="auditPage === 0" @click="auditPage--; loadAuditLogs()">上一页</button>
+          <span>{{ auditPage * 20 + 1 }}-{{ Math.min((auditPage + 1) * 20, auditTotal) }} / {{ auditTotal }}</span>
+          <button class="btn-secondary" :disabled="(auditPage + 1) * 20 >= auditTotal" @click="auditPage++; loadAuditLogs()">下一页</button>
+        </div>
+      </div>
+
       <!-- System Monitor -->
       <div v-if="activeTab === 'monitor'" class="panel">
         <h2>系统监控</h2>
@@ -118,8 +189,8 @@
           <div v-for="(data, name) in skillStats" :key="name" class="skill-card">
             <div class="skill-header">
               <span class="skill-name">{{ name }}</span>
-              <span class="skill-badge" :class="(data.live?.success_rate as number) > 0.8 ? 'badge-ok' : 'badge-warn'">
-                {{ ((data.live?.success_rate as number || 0) * 100).toFixed(0) }}%
+              <span class="skill-badge" :class="(data.live?.success_rate ?? 0) > 0.8 ? 'badge-ok' : 'badge-warn'">
+                {{ ((data.live?.success_rate ?? 0) * 100).toFixed(0) }}%
               </span>
             </div>
             <div class="skill-metrics">
@@ -155,6 +226,7 @@
 import { ref, reactive, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
 import QualityDashboard from '@/components/QualityDashboard.vue'
+import { adminApi, type SkillStats } from '@/api/admin'
 import api from '@/api/index'
 
 const activeTab = ref('model')
@@ -163,6 +235,9 @@ const vectorWeight = ref(70)
 const tabs = [
   { key: 'model', label: '模型配置' },
   { key: 'retrieval', label: '检索设置' },
+  { key: 'system', label: '系统参数' },
+  { key: 'apikey', label: 'API Key' },
+  { key: 'audit', label: '操作日志' },
   { key: 'skills', label: '技能统计' },
   { key: 'monitor', label: '系统监控' },
   { key: 'quality', label: '质量仪表盘' },
@@ -173,32 +248,35 @@ const retrievalSettings = reactive({ top_k: 10, rerank_enabled: true })
 const stats = reactive<{ total_queries: number; avg_latency: number; token_usage: string; avg_score: number }>({
   total_queries: 0, avg_latency: 0, token_usage: '0', avg_score: 0,
 })
-const skillStats = ref<Record<string, { live: Record<string, unknown>; historical: Record<string, unknown> }>>({})
+const skillStats = ref<SkillStats>({})
+const systemSettings = ref<Record<string, unknown>>({})
+const myApiKey = ref<string | null>(null)
+const auditLogs = ref<any[]>([])
+const auditTotal = ref(0)
+const auditPage = ref(0)
+const auditFilter = ref('')
 
-onMounted(() => { loadSettings(); loadSkillStats() })
+onMounted(() => { loadSettings(); loadSkillStats(); loadSystemSettings() })
 
 async function loadSettings() {
   try {
-    const res = await api.get('/knowledge/retrieval-config/config')
-    const cfg = res.data
+    const cfg = await adminApi.getRetrievalConfig()
     if (cfg) {
       vectorWeight.value = Math.round((cfg.vector_weight || 0.7) * 100)
       retrievalSettings.top_k = cfg.top_k || 10
       retrievalSettings.rerank_enabled = cfg.rerank_enabled ?? true
-      if (cfg.llm_model) modelSettings.model = cfg.llm_model
-      if (cfg.embedding_model) modelSettings.embedding = cfg.embedding_model
     }
   } catch { /* use defaults */ }
 
   try {
-    const res = await api.get('/knowledge/stats/overview')
-    Object.assign(stats, res.data || {})
+    const data = await adminApi.getSystemStats()
+    Object.assign(stats, data || {})
   } catch { /* unavailable */ }
 }
 
 async function saveModelSettings() {
   try {
-    await api.put('/knowledge/retrieval-config/config', {
+    await adminApi.updateRetrievalConfig({
       llm_model: modelSettings.model,
       embedding_model: modelSettings.embedding,
     })
@@ -208,7 +286,7 @@ async function saveModelSettings() {
 
 async function saveRetrievalSettings() {
   try {
-    await api.put('/knowledge/retrieval-config/config', {
+    await adminApi.updateRetrievalConfig({
       vector_weight: vectorWeight.value / 100,
       bm25_weight: (100 - vectorWeight.value) / 100,
       top_k: retrievalSettings.top_k,
@@ -220,18 +298,76 @@ async function saveRetrievalSettings() {
 
 async function refreshStats() {
   try {
-    const res = await api.get('/knowledge/stats/overview')
-    Object.assign(stats, res.data || {})
+    const data = await adminApi.getSystemStats()
+    Object.assign(stats, data || {})
     ElMessage.success('已刷新')
   } catch { ElMessage.error('刷新失败') }
 }
 
 async function loadSkillStats() {
   try {
-    const res = await api.get('/admin/skill-stats')
-    skillStats.value = res.data?.skills || {}
+    skillStats.value = await adminApi.getSkillStats()
   } catch { /* unavailable */ }
 }
+
+async function loadSystemSettings() {
+  try {
+    const res = await api.get('/admin/settings')
+    systemSettings.value = res.data
+  } catch { /* unavailable */ }
+}
+
+async function loadApiKey() {
+  try {
+    const res = await api.get('/admin/api-key')
+    myApiKey.value = res.data?.api_key || null
+  } catch { /* unavailable */ }
+}
+
+async function generateApiKey() {
+  try {
+    const res = await api.post('/admin/api-key')
+    myApiKey.value = res.data?.api_key
+    ElMessage.success('API Key 已生成')
+  } catch { ElMessage.error('生成失败') }
+}
+
+async function revokeApiKey() {
+  if (!confirm('确定撤销 API Key？使用此 Key 的应用将无法访问。')) return
+  try {
+    await api.delete('/admin/api-key')
+    myApiKey.value = null
+    ElMessage.success('API Key 已撤销')
+  } catch { ElMessage.error('撤销失败') }
+}
+
+function copyApiKey() {
+  if (myApiKey.value) {
+    navigator.clipboard.writeText(myApiKey.value)
+    ElMessage.success('已复制')
+  }
+}
+
+async function loadAuditLogs() {
+  try {
+    const params: Record<string, unknown> = { limit: 20, skip: auditPage.value * 20 }
+    if (auditFilter.value) params.action = auditFilter.value
+    const res = await api.get('/admin/audit-logs', { params })
+    auditLogs.value = res.data?.logs || []
+    auditTotal.value = res.data?.total || 0
+  } catch { /* unavailable */ }
+}
+
+function formatTime(ts: string) {
+  if (!ts) return '-'
+  const d = new Date(ts)
+  return d.toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })
+}
+
+onMounted(() => {
+  loadApiKey()
+  loadAuditLogs()
+})
 </script>
 
 <style scoped>
@@ -468,6 +604,34 @@ async function loadSkillStats() {
   gap: var(--space-4);
   margin-bottom: var(--space-6);
 }
+
+/* System settings */
+.settings-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: var(--space-3);
+  margin-bottom: var(--space-6);
+}
+.setting-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: var(--space-3);
+  background: var(--color-bg-secondary);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+}
+.setting-key {
+  font-size: var(--text-sm);
+  color: var(--color-text-secondary);
+  font-family: var(--font-mono);
+}
+.setting-val {
+  font-size: var(--text-sm);
+  font-weight: var(--font-medium);
+  color: var(--color-text);
+  font-family: var(--font-mono);
+}
 .skill-card {
   background: var(--color-surface);
   border: 1px solid var(--color-border-light);
@@ -521,5 +685,133 @@ async function loadSkillStats() {
 .metric-lbl {
   font-size: var(--text-xs);
   color: var(--color-text-tertiary);
+}
+
+/* API Key */
+.panel-desc {
+  font-size: var(--text-sm);
+  color: var(--color-text-secondary);
+  margin-bottom: var(--space-4);
+}
+.apikey-section {
+  max-width: 500px;
+}
+.apikey-display {
+  margin-bottom: var(--space-4);
+}
+.apikey-display label {
+  display: block;
+  font-size: var(--text-sm);
+  font-weight: var(--font-medium);
+  color: var(--color-text);
+  margin-bottom: var(--space-2);
+}
+.apikey-row {
+  display: flex;
+  gap: var(--space-2);
+  align-items: center;
+}
+.apikey-value {
+  flex: 1;
+  padding: var(--space-2) var(--space-3);
+  background: var(--color-bg-secondary);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  color: var(--color-text);
+  word-break: break-all;
+}
+.apikey-warn {
+  font-size: var(--text-xs);
+  color: var(--color-warning);
+  margin-top: var(--space-2);
+}
+.apikey-empty p {
+  font-size: var(--text-sm);
+  color: var(--color-text-secondary);
+  margin-bottom: var(--space-4);
+}
+.apikey-actions {
+  display: flex;
+  gap: var(--space-3);
+}
+.btn-danger {
+  padding: var(--space-2) var(--space-4);
+  background: var(--color-error);
+  color: white;
+  border: none;
+  border-radius: var(--radius-md);
+  font-size: var(--text-sm);
+  cursor: pointer;
+}
+.btn-danger:hover {
+  opacity: 0.9;
+}
+
+/* Audit Logs */
+.audit-toolbar {
+  display: flex;
+  gap: var(--space-3);
+  margin-bottom: var(--space-4);
+}
+.audit-toolbar select {
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  font-size: var(--text-sm);
+  color: var(--color-text);
+  background: var(--color-surface);
+}
+.audit-table {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+.audit-header, .audit-row {
+  display: grid;
+  grid-template-columns: 140px 100px 140px 1fr;
+  padding: var(--space-2) var(--space-3);
+  font-size: var(--text-sm);
+}
+.audit-header {
+  background: var(--color-bg-secondary);
+  font-weight: var(--font-semibold);
+  color: var(--color-text-secondary);
+}
+.audit-row {
+  border-top: 1px solid var(--color-border-light);
+  color: var(--color-text);
+}
+.audit-row:hover {
+  background: var(--color-bg-secondary);
+}
+.audit-time {
+  color: var(--color-text-tertiary);
+  font-size: var(--text-xs);
+}
+.audit-action {
+  font-weight: var(--font-medium);
+}
+.audit-detail {
+  color: var(--color-text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.audit-empty {
+  padding: var(--space-6);
+  text-align: center;
+  color: var(--color-text-tertiary);
+  font-size: var(--text-sm);
+}
+.audit-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-4);
+  margin-top: var(--space-4);
+  font-size: var(--text-sm);
+  color: var(--color-text-secondary);
 }
 </style>

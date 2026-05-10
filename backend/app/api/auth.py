@@ -3,12 +3,13 @@ Authentication API - login, register, token management.
 """
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from passlib.context import CryptContext
 from pydantic import BaseModel
 from sqlalchemy import text
 
 from app.auth import TokenData, auth_handler, get_current_user
+from app.core.audit import log_action
 from app.storage.database import get_db_session
 
 router = APIRouter()
@@ -54,8 +55,9 @@ class UserResponse(BaseModel):
 
 
 @router.post("/login", response_model=TokenResponse)
-async def login(data: UserLogin):
+async def login(data: UserLogin, request: Request):
     """Login with username and password."""
+    ip = request.client.host if request.client else None
     async with get_db_session() as db:
         result = await db.execute(
             text("SELECT id, username, email, role, password_hash FROM users WHERE username=:username"),
@@ -64,11 +66,13 @@ async def login(data: UserLogin):
         user = result.fetchone()
 
         if not user:
+            await log_action(action="login_failed", detail=f"username={data.username}", ip_address=ip)
             raise HTTPException(status_code=401, detail="Invalid username or password")
 
         user_id, username, _email, role, password_hash = user[0], user[1], user[2], user[3], user[4]
 
         if not verify_password(data.password, password_hash or ""):
+            await log_action(user_id=user_id, username=username, action="login_failed", detail="wrong password", ip_address=ip)
             raise HTTPException(status_code=401, detail="Invalid username or password")
 
         # Create token
@@ -77,6 +81,8 @@ async def login(data: UserLogin):
             "username": username,
             "role": role or "user",
         })
+
+        await log_action(user_id=user_id, username=username, action="login", ip_address=ip)
 
         return TokenResponse(
             access_token=token,
@@ -87,8 +93,9 @@ async def login(data: UserLogin):
 
 
 @router.post("/register", response_model=TokenResponse)
-async def register(data: UserRegister):
+async def register(data: UserRegister, request: Request):
     """Register a new user."""
+    ip = request.client.host if request.client else None
     async with get_db_session() as db:
         # Check if username exists
         result = await db.execute(
@@ -114,6 +121,8 @@ async def register(data: UserRegister):
             "username": data.username,
             "role": "user",
         })
+
+        await log_action(user_id=user_id, username=data.username, action="register", ip_address=ip)
 
         return TokenResponse(
             access_token=token,

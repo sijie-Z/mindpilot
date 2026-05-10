@@ -3,6 +3,7 @@ Feishu (Lark) Bot webhook handler.
 Integrates with MindPilot backend API for intelligent Q&A.
 """
 import hashlib
+import hmac
 import json
 
 from fastapi import APIRouter, HTTPException, Request
@@ -35,7 +36,7 @@ def verify_signature(timestamp: str, nonce: str, body: str, signature: str) -> b
 
     content = f"{timestamp}{nonce}{feishu_config.ENCRYPT_KEY}{body}"
     expected = hashlib.sha256(content.encode()).hexdigest()
-    return expected == signature
+    return hmac.compare_digest(expected, signature)
 
 
 @router.post("/webhook")

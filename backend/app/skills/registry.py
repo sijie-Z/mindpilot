@@ -264,7 +264,7 @@ class SkillRegistry:
             except Exception as e:
                 logger.warning(
                     "Failed to load skill module",
-                    module=module_name,
+                    skill_module=module_name,
                     error=str(e),
                 )
 

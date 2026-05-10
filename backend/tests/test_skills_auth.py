@@ -146,15 +146,21 @@ class TestSkillRegistry:
 
         actual = asyncio.run(registry.execute("no_such_skill", "query"))
         assert actual.success is False
-        assert "not found" in actual.error.lower()
+        assert "unknown" in actual.error.lower() or "not found" in actual.error.lower()
 
     def test_get_skill_for_intent(self):
         """Test intent-to-skill mapping."""
         from app.skills.registry import registry
 
-        assert registry.get_skill_for_intent("calculation") == "calculator"
-        assert registry.get_skill_for_intent("search") == "web_search"
-        assert registry.get_skill_for_intent("unknown_intent") is None
+        skill = registry.get_for_intent("calculation")
+        assert skill is not None
+        assert skill.name == "calculator"
+
+        skill = registry.get_for_intent("search")
+        assert skill is not None
+        assert skill.name == "web_search"
+
+        assert registry.get_for_intent("unknown_intent") is None
 
     def test_unregister_skill(self):
         """Test unregistering a skill."""

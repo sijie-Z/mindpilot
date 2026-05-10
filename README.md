@@ -13,7 +13,7 @@
 
 **MindPilot** 是一个企业级 RAG（检索增强生成）平台，支持多模态文档理解、混合检索、多 Agent 协作编排，以及网页 / QQ / 飞书多端接入。
 
-> **核心亮点**: LangGraph 多 Agent 编排 | Self-RAG 自检 | 混合检索 (Vector + BM25 + RRF) | RAGAS 质量评估 | SSE 流式对话 | 多模态理解 | Skill 自动注册与遥测 | 错误分类与恢复 | 注入防护 | 对话分支 | 语义搜索高亮 | RAG 质量仪表盘
+> **核心亮点**: LangGraph 多 Agent 编排 | Self-RAG 自检 | 混合检索 (Vector + BM25 + RRF) | RAGAS 质量评估 | SSE 流式对话 | 多模态理解 | Skill 自动注册与遥测 | 错误分类与恢复 | 注入防护 | 对话分支 | 语义搜索高亮 | RAG 质量仪表盘 | 对话分享 | 文档标签 | 批量操作 | API Key | 审计日志
 
 ---
 
@@ -35,6 +35,13 @@
 | **对话分支** | 从任意消息点创建对话分支，分支树可视化，支持切换/删除 |
 | **语义搜索高亮** | 句子级相关性评分，基于 Embedding 余弦相似度的精准高亮 |
 | **RAG 质量仪表盘** | RAGAS 指标趋势、分数分布、延迟百分位、Token 用量分析 |
+| **对话分享** | 一键生成分享链接，任何人可查看，支持取消分享 |
+| **文档标签** | 文档标签管理，按标签/文件类型筛选，批量操作 |
+| **批量操作** | 文档列表全选/多选，批量删除/移动 |
+| **API Key** | 用户自助生成/撤销 API Key，用于 API 接口访问 |
+| **操作审计** | 登录/注册/上传/删除等关键操作自动记录，Admin 页面查看 |
+| **对话模板** | 10 个内置模板 + 用户自定义，分类筛选快速输入 |
+| **会话管理** | 自动标题、历史分页、消息编辑、重试/重新生成、导出 Markdown/JSON |
 | **企业级部署** | Docker Compose 8 服务编排、网络隔离、健康检查、Nginx 安全头 + 限流 |
 
 ---
@@ -118,7 +125,7 @@ npm run dev              # → http://localhost:5173
 ### 运行测试
 
 ```bash
-# 后端测试
+# 后端测试 (293 tests, 74% coverage)
 cd backend
 
 # 单元测试（无需外部服务）
@@ -130,7 +137,7 @@ pytest tests/ -v
 # 覆盖率报告
 pytest tests/ -v --cov=app --cov-report=html
 
-# 前端测试
+# 前端测试 (64 tests)
 cd frontend
 
 # 运行所有测试
@@ -293,13 +300,22 @@ mindpilot/
 | `/api/chat/` | POST | 非流式对话 | 无 |
 | `/api/chat/stream` | POST | SSE 流式对话 | 无 |
 | `/api/chat/search` | GET | 会话全文搜索 (ngram) | 无 |
+| `/api/chat/sessions/{id}/share` | POST | 创建对话分享链接 | JWT |
+| `/api/chat/sessions/{id}/share` | DELETE | 取消对话分享 | JWT |
+| `/api/chat/share/{share_id}` | GET | 查看分享对话（公开） | 无 |
 | `/api/document/upload` | POST | 上传文档 | JWT |
+| `/api/document/batch-delete` | POST | 批量删除文档 | JWT |
+| `/api/document/batch-move` | POST | 批量移动文档 | JWT |
+| `/api/document/{id}/tags` | PUT | 更新文档标签 | JWT |
 | `/api/knowledge/` | GET/POST | 知识库列表 / 创建 | JWT |
 | `/api/knowledge/{id}` | GET/PUT/DELETE | 知识库详情 / 更新 / 删除 | JWT |
 | `/api/workflow/` | GET | 工作流图 | 无 |
 | `/api/workflow/run` | POST | 执行工作流 | 无 |
 | `/api/admin/users` | GET/POST | 用户管理 | Admin |
 | `/api/admin/stats` | GET | 系统统计 | Admin |
+| `/api/admin/api-key` | GET/POST/DELETE | API Key 管理 | JWT |
+| `/api/admin/audit-logs` | GET | 操作日志查看 | Admin |
+| `/api/admin/settings` | GET/PUT | 系统设置 | Admin |
 | `/api/admin/evaluations` | GET | 评估记录 | Admin |
 | `/api/admin/skill-stats` | GET | 技能使用统计 (实时+历史) | Admin |
 | `/api/admin/skill-logs` | GET | 技能执行日志 | Admin |
@@ -344,6 +360,11 @@ mindpilot/
 | **对话分支** | branch_id 隔离 + 消息复制 | 任意节点分叉、分支树可视化 |
 | **语义高亮** | Embedding 余弦相似度 | 句子级评分、opacity 渐变高亮 |
 | **质量仪表盘** | RAGAS 聚合 + 纯 CSS 图表 | 趋势/分布/延迟百分位/Token 分析 |
+| **对话分享** | share_id + 公开路由 | 一键分享、取消分享、无需登录查看 |
+| **文档标签** | JSON 列 + MySQL JSON_CONTAINS | 标签 CRUD、按标签筛选 |
+| **批量操作** | 后端批量 API + 前端多选 | 批量删除、批量移动 |
+| **API Key** | 用户维度 Key + JWT 双认证 | 自助生成/撤销、API 接口访问 |
+| **审计日志** | AuditLog 表 + 异步写入 | 关键操作自动记录、Admin 查看/筛选 |
 | **部署** | Docker Compose + Nginx | 多阶段构建、反向代理、SSE 支持 |
 
 ---

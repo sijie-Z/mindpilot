@@ -5,14 +5,34 @@ import asyncio
 import uuid
 from datetime import UTC, datetime
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from sqlalchemy import text
 
-from app.auth import TokenData, get_optional_user
+from app.auth import TokenData, get_current_user, get_optional_user
 from app.storage.database import get_db_session
 
 router = APIRouter()
+
+
+async def _check_knowledge_access(kb_id: str, user: TokenData | None, require_owner: bool = False):
+    """Check if user can access a knowledge base. Admin can access all."""
+    if user and user.role == "admin":
+        return True
+
+    async with get_db_session() as db:
+        result = await db.execute(
+            text("SELECT user_id FROM knowledges WHERE id = :kb_id"),
+            {"kb_id": kb_id}
+        )
+        row = result.fetchone()
+        if not row:
+            raise HTTPException(404, "Knowledge base not found")
+
+        if require_owner and row[0] != (user.user_id if user else None):
+            raise HTTPException(403, "Not your knowledge base")
+
+    return True
 
 
 class KnowledgeCreate(BaseModel):
@@ -41,11 +61,12 @@ async def create_knowledge(
 ):
     """Create a new knowledge base."""
     kb_id = str(uuid.uuid4())
+    user_id = current_user.user_id if current_user else None
 
     async with get_db_session() as db:
         await db.execute(
-            text("INSERT INTO knowledges (id, name, description) VALUES (:id, :name, :desc)"),
-            {"id": kb_id, "name": data.name, "desc": data.description or ""}
+            text("INSERT INTO knowledges (id, name, description, user_id) VALUES (:id, :name, :desc, :uid)"),
+            {"id": kb_id, "name": data.name, "desc": data.description or "", "uid": user_id}
         )
 
     return KnowledgeResponse(
@@ -59,12 +80,28 @@ async def create_knowledge(
 
 
 @router.get("/")
-async def list_knowledges():
-    """List all knowledge bases."""
+async def list_knowledges(
+    current_user: TokenData | None = Depends(get_optional_user),
+):
+    """List knowledge bases. Admin sees all, users see only their own."""
+    user_id = current_user.user_id if current_user else None
+    is_admin = current_user and current_user.role == "admin"
+
     async with get_db_session() as db:
-        result = await db.execute(
-            text("SELECT id, name, description, doc_count, chunk_count, created_at FROM knowledges")
-        )
+        if is_admin:
+            result = await db.execute(
+                text("SELECT id, name, description, doc_count, chunk_count, created_at FROM knowledges")
+            )
+        elif user_id:
+            result = await db.execute(
+                text("SELECT id, name, description, doc_count, chunk_count, created_at "
+                     "FROM knowledges WHERE user_id = :uid"),
+                {"uid": user_id}
+            )
+        else:
+            # Anonymous users see nothing
+            return {"knowledges": []}
+
         kbs = result.fetchall()
         return {
             "knowledges": [
@@ -82,8 +119,13 @@ async def list_knowledges():
 
 
 @router.get("/{kb_id}")
-async def get_knowledge(kb_id: str):
-    """Get knowledge base details."""
+async def get_knowledge(
+    kb_id: str,
+    current_user: TokenData | None = Depends(get_optional_user),
+):
+    """Get knowledge base details. Must be owner or admin."""
+    await _check_knowledge_access(kb_id, current_user)
+
     async with get_db_session() as db:
         result = await db.execute(
             text("SELECT id, name, description, doc_count, chunk_count, created_at "
@@ -105,8 +147,13 @@ async def get_knowledge(kb_id: str):
 
 
 @router.put("/{kb_id}")
-async def update_knowledge(kb_id: str, data: KnowledgeUpdate):
-    """Update knowledge base."""
+async def update_knowledge(
+    kb_id: str,
+    data: KnowledgeUpdate,
+    current_user: TokenData = Depends(get_current_user),
+):
+    """Update knowledge base. Must be owner or admin."""
+    await _check_knowledge_access(kb_id, current_user, require_owner=True)
     updates = []
     params = {"kb_id": kb_id}
     if data.name:
@@ -129,8 +176,12 @@ async def update_knowledge(kb_id: str, data: KnowledgeUpdate):
 
 
 @router.delete("/{kb_id}")
-async def delete_knowledge(kb_id: str):
-    """Delete knowledge base and all its documents."""
+async def delete_knowledge(
+    kb_id: str,
+    current_user: TokenData = Depends(get_current_user),
+):
+    """Delete knowledge base and all its documents. Must be owner or admin."""
+    await _check_knowledge_access(kb_id, current_user, require_owner=True)
     async with get_db_session() as db:
         # Get all document IDs
         result = await db.execute(
@@ -175,8 +226,12 @@ async def delete_knowledge(kb_id: str):
 
 
 @router.get("/{kb_id}/documents")
-async def list_knowledge_documents(kb_id: str):
-    """List documents in a knowledge base."""
+async def list_knowledge_documents(
+    kb_id: str,
+    current_user: TokenData | None = Depends(get_optional_user),
+):
+    """List documents in a knowledge base. Must be owner or admin."""
+    await _check_knowledge_access(kb_id, current_user)
     async with get_db_session() as db:
         result = await db.execute(
             text("SELECT id, filename, file_type, status, chunks, created_at "
@@ -207,6 +262,8 @@ class RetrievalConfigUpdate(BaseModel):
     bm25_weight: float | None = None
     top_k: int | None = None
     rerank_enabled: bool | None = None
+    llm_model: str | None = None
+    embedding_model: str | None = None
 
 
 @router.get("/retrieval-config/config")
@@ -216,7 +273,7 @@ async def get_retrieval_config(
     """Get current retrieval configuration."""
     async with get_db_session() as db:
         result = await db.execute(
-            text("SELECT vector_weight, bm25_weight, top_k, rerank_enabled FROM retrieval_configs LIMIT 1")
+            text("SELECT vector_weight, bm25_weight, top_k, rerank_enabled, llm_model, embedding_model FROM retrieval_configs LIMIT 1")
         )
         config = result.fetchone()
 
@@ -226,6 +283,8 @@ async def get_retrieval_config(
                 "bm25_weight": 0.3,
                 "top_k": 10,
                 "rerank_enabled": True,
+                "llm_model": "glm-4-flash",
+                "embedding_model": "embedding-3",
             }
 
         return {
@@ -233,6 +292,8 @@ async def get_retrieval_config(
             "bm25_weight": config[1],
             "top_k": config[2],
             "rerank_enabled": bool(config[3]),
+            "llm_model": config[4] or "glm-4-flash",
+            "embedding_model": config[5] or "embedding-3",
         }
 
 
@@ -262,6 +323,12 @@ async def update_retrieval_config(
             if config.rerank_enabled is not None:
                 updates.append("rerank_enabled=:re")
                 params["re"] = int(config.rerank_enabled)
+            if config.llm_model is not None:
+                updates.append("llm_model=:lm")
+                params["lm"] = config.llm_model
+            if config.embedding_model is not None:
+                updates.append("embedding_model=:em")
+                params["em"] = config.embedding_model
 
             if updates:
                 await db.execute(
@@ -271,11 +338,13 @@ async def update_retrieval_config(
         else:
             config_id = str(uuid.uuid4())
             await db.execute(
-                text("INSERT INTO retrieval_configs (id, vector_weight, bm25_weight, top_k, rerank_enabled) "
-                     "VALUES (:id, :vw, :bw, :top_k, :re)"),
-                {"id": config_id, "vw": config.vector_weight or 0.7,
-                 "bw": config.bm25_weight or 0.3, "top_k": config.top_k or 10,
-                 "re": int(config.rerank_enabled if config.rerank_enabled is not None else True)}
+                text("INSERT INTO retrieval_configs (id, vector_weight, bm25_weight, top_k, rerank_enabled, llm_model, embedding_model) "
+                     "VALUES (:id, :vw, :bw, :top_k, :re, :lm, :em)"),
+                {"id": config_id, "vw": config.vector_weight if config.vector_weight is not None else 0.7,
+                 "bw": config.bm25_weight if config.bm25_weight is not None else 0.3, "top_k": config.top_k if config.top_k is not None else 10,
+                 "re": int(config.rerank_enabled if config.rerank_enabled is not None else True),
+                 "lm": config.llm_model if config.llm_model is not None else "glm-4-flash",
+                 "em": config.embedding_model if config.embedding_model is not None else "embedding-3"}
             )
 
     return await get_retrieval_config()
@@ -334,15 +403,13 @@ async def search_knowledge(
     from app.rag.retriever import retriever
 
     try:
-        # Set weights if provided
-        if data.vector_weight != 0.7:
-            retriever.set_weights(data.vector_weight, 1 - data.vector_weight)
-
-        # Perform search
+        # Perform search with per-request weights (no global mutation)
         results = await retriever.search(
             query=data.query,
             knowledge_id=data.knowledge_id or "",
             top_k=data.top_k,
+            vector_weight=data.vector_weight,
+            bm25_weight=1 - data.vector_weight,
         )
 
         return {
@@ -360,11 +427,13 @@ async def search_in_knowledge(
     kb_id: str,
     q: str = "",
     limit: int = 20,
+    current_user: TokenData | None = Depends(get_optional_user),
 ):
     """
-    Search within a specific knowledge base.
+    Search within a specific knowledge base. Must be owner or admin.
     Simple BM25 search for chunks.
     """
+    await _check_knowledge_access(kb_id, current_user)
     if not q:
         raise HTTPException(400, "Query parameter 'q' is required")
 
@@ -384,15 +453,17 @@ async def search_in_knowledge(
 
         # Fallback to LIKE if fulltext returns nothing
         if not chunks:
+            # Escape SQL LIKE wildcards to prevent user input from changing semantics
+            escaped = q.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
             result = await db.execute(
                 text("""
                     SELECT id, chunk_index, content, metadata
                     FROM chunks
                     WHERE doc_id IN (SELECT id FROM documents WHERE knowledge_id = :kb_id)
-                    AND content LIKE :pattern
+                    AND content LIKE :pattern ESCAPE '\\'
                     LIMIT :limit
                 """),
-                {"kb_id": kb_id, "pattern": f"%{q}%", "limit": limit}
+                {"kb_id": kb_id, "pattern": f"%{escaped}%", "limit": limit}
             )
             chunks = result.fetchall()
 
@@ -407,13 +478,75 @@ async def search_in_knowledge(
         ]
 
 
+@router.get("/{kb_id}/analytics")
+async def get_knowledge_analytics(
+    kb_id: str,
+    days: int = Query(30, ge=1, le=365),
+    current_user: TokenData | None = Depends(get_optional_user),
+):
+    """Get usage analytics for a specific knowledge base."""
+    await _check_knowledge_access(kb_id, current_user)
+
+    async with get_db_session() as db:
+        # Get document count and chunk count
+        result = await db.execute(
+            text("SELECT COUNT(*) as doc_count, COALESCE(SUM(chunks), 0) as chunk_count "
+                 "FROM documents WHERE knowledge_id = :kb_id AND deleted_at IS NULL"),
+            {"kb_id": kb_id}
+        )
+        stats = result.fetchone()
+
+        # Get most referenced documents (from message metadata)
+        result = await db.execute(
+            text("""
+                SELECT d.filename, COUNT(*) as cite_count
+                FROM messages m
+                JOIN JSON_TABLE(
+                    m.metadata, '$.sources[*]' COLUMNS(filename VARCHAR(200) PATH '$.filename')
+                ) AS src ON TRUE
+                JOIN documents d ON d.filename = src.filename AND d.knowledge_id = :kb_id
+                WHERE m.role = 'assistant'
+                AND m.created_at >= DATE_SUB(NOW(), INTERVAL :days DAY)
+                GROUP BY d.filename
+                ORDER BY cite_count DESC
+                LIMIT 10
+            """),
+            {"kb_id": kb_id, "days": days}
+        )
+        top_docs = [{"filename": r[0], "citations": r[1]} for r in result.fetchall()]
+
+        # Get query count for this KB
+        result = await db.execute(
+            text("""
+                SELECT COUNT(*) FROM messages m
+                WHERE m.role = 'user'
+                AND m.metadata IS NOT NULL
+                AND JSON_EXTRACT(m.metadata, '$.knowledge_id') = :kb_id
+                AND m.created_at >= DATE_SUB(NOW(), INTERVAL :days DAY)
+            """),
+            {"kb_id": kb_id, "days": days}
+        )
+        query_count = result.fetchone()[0]
+
+    return {
+        "knowledge_id": kb_id,
+        "doc_count": stats[0],
+        "chunk_count": stats[1],
+        "query_count": query_count,
+        "top_documents": top_docs,
+        "period_days": days,
+    }
+
+
 @router.get("/{kb_id}/chunks")
 async def list_knowledge_chunks(
     kb_id: str,
     skip: int = 0,
     limit: int = 50,
+    current_user: TokenData | None = Depends(get_optional_user),
 ):
-    """List chunks in a knowledge base."""
+    """List chunks in a knowledge base. Must be owner or admin."""
+    await _check_knowledge_access(kb_id, current_user)
     async with get_db_session() as db:
         result = await db.execute(
             text("""

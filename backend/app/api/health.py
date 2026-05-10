@@ -232,3 +232,12 @@ async def metrics_endpoint():
 async def startup_check():
     """Startup probe for Kubernetes."""
     return {"status": "started", "timestamp": datetime.now(UTC).isoformat()}
+
+
+@router.get("/models")
+async def list_models():
+    """List available LLM models."""
+    return {
+        "models": settings.AVAILABLE_MODELS,
+        "default": settings.LLM_MODEL,
+    }

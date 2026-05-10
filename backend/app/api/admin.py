@@ -27,7 +27,7 @@ class UserCreate(BaseModel):
     username: str
     email: str | None = None
     role: str = "user"
-    password: str | None = None
+    password: str
 
 
 class UserUpdate(BaseModel):
@@ -106,7 +106,7 @@ async def create_user(
 
     user_id = str(uuid.uuid4())
     api_key = auth_handler.generate_api_key() if user.role == "admin" else None
-    password_hash = hash_password(user.password or "mindpilot123")
+    password_hash = hash_password(user.password)
 
     async with get_db_session() as db:
         try:
@@ -382,11 +382,11 @@ async def update_retrieval_config(
                 "id": config_id,
                 "user_id": current_user.user_id,
                 "kid": knowledge_id,
-                "vw": config.vector_weight or settings.DEFAULT_VECTOR_WEIGHT,
-                "bw": config.bm25_weight or settings.DEFAULT_BM25_WEIGHT,
-                "top_k": config.top_k or 10,
-                "rerank": config.rerank_enabled or True,
-                "self_rag": config.self_rag_enabled or True,
+                "vw": config.vector_weight if config.vector_weight is not None else settings.DEFAULT_VECTOR_WEIGHT,
+                "bw": config.bm25_weight if config.bm25_weight is not None else settings.DEFAULT_BM25_WEIGHT,
+                "top_k": config.top_k if config.top_k is not None else 10,
+                "rerank": config.rerank_enabled if config.rerank_enabled is not None else True,
+                "self_rag": config.self_rag_enabled if config.self_rag_enabled is not None else True,
             }
         )
 
@@ -420,8 +420,8 @@ async def list_evaluations(
         return [
             {
                 "id": e[0],
-                "query": e[1][:100] + "..." if len(e[1]) > 100 else e[1],
-                "answer": e[2][:100] + "..." if len(e[2]) > 100 else e[2],
+                "query": (e[1] or "")[:100] + "..." if len(e[1] or "") > 100 else (e[1] or ""),
+                "answer": (e[2] or "")[:100] + "..." if len(e[2] or "") > 100 else (e[2] or ""),
                 "faithfulness": e[3],
                 "answer_relevance": e[4],
                 "context_precision": e[5],
@@ -569,6 +569,79 @@ async def get_skill_stats(
     return {"skills": merged}
 
 
+# === Audit Logs ===
+
+@router.get("/audit-logs")
+async def list_audit_logs(
+    action: str | None = None,
+    user_id: str | None = None,
+    resource_type: str | None = None,
+    skip: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=200),
+    current_user: TokenData = Depends(require_role("admin")),
+):
+    """List audit logs with optional filters (admin only)."""
+    conditions = []
+    params = {"limit": limit, "skip": skip}
+
+    if action:
+        conditions.append("action = :action")
+        params["action"] = action
+    if user_id:
+        conditions.append("user_id = :uid")
+        params["uid"] = user_id
+    if resource_type:
+        conditions.append("resource_type = :rtype")
+        params["rtype"] = resource_type
+
+    where = "WHERE " + " AND ".join(conditions) if conditions else ""
+
+    async with get_db_session() as db:
+        result = await db.execute(
+            text(f"SELECT id, user_id, username, action, resource_type, resource_id, detail, ip_address, created_at "
+                 f"FROM audit_logs {where} ORDER BY created_at DESC LIMIT :limit OFFSET :skip"),
+            params
+        )
+        logs = result.fetchall()
+
+        # Get total count
+        count_result = await db.execute(
+            text(f"SELECT COUNT(*) FROM audit_logs {where}"),
+            params
+        )
+        total = count_result.fetchone()[0]
+
+        return {
+            "total": total,
+            "logs": [
+                {
+                    "id": log[0],
+                    "user_id": log[1],
+                    "username": log[2],
+                    "action": log[3],
+                    "resource_type": log[4],
+                    "resource_id": log[5],
+                    "detail": log[6],
+                    "ip_address": log[7],
+                    "created_at": log[8].isoformat() if log[8] else None,
+                }
+                for log in logs
+            ]
+        }
+
+
+@router.get("/audit-logs/actions")
+async def list_audit_actions(
+    current_user: TokenData = Depends(require_role("admin")),
+):
+    """List distinct audit log action types."""
+    async with get_db_session() as db:
+        result = await db.execute(
+            text("SELECT DISTINCT action FROM audit_logs ORDER BY action")
+        )
+        return {"actions": [row[0] for row in result.fetchall()]}
+
+
 # === System Configuration ===
 
 @router.get("/config")
@@ -626,3 +699,112 @@ async def health_check():
         "checks": checks,
         "timestamp": datetime.now(UTC).isoformat(),
     }
+
+
+# ── System Settings ──
+
+class SystemSettingsUpdate(BaseModel):
+    llm_model: str | None = None
+    embedding_model: str | None = None
+    chunk_size: int | None = None
+    chunk_overlap: int | None = None
+    max_upload_size_mb: int | None = None
+    default_vector_weight: float | None = None
+    default_bm25_weight: float | None = None
+
+
+# === Self-service API Key ===
+
+@router.get("/api-key")
+async def get_my_api_key(
+    current_user: TokenData = Depends(get_current_user),
+):
+    """Get current user's API key."""
+    async with get_db_session() as db:
+        result = await db.execute(
+            text("SELECT api_key FROM users WHERE id=:uid"),
+            {"uid": current_user.user_id}
+        )
+        row = result.fetchone()
+        return {"api_key": row[0] if row else None}
+
+
+@router.post("/api-key")
+async def generate_my_api_key(
+    current_user: TokenData = Depends(get_current_user),
+):
+    """Generate or regenerate current user's API key."""
+    new_key = auth_handler.generate_api_key()
+    async with get_db_session() as db:
+        await db.execute(
+            text("UPDATE users SET api_key=:key WHERE id=:uid"),
+            {"key": new_key, "uid": current_user.user_id}
+        )
+    return {"api_key": new_key}
+
+
+@router.delete("/api-key")
+async def revoke_my_api_key(
+    current_user: TokenData = Depends(get_current_user),
+):
+    """Revoke current user's API key."""
+    async with get_db_session() as db:
+        await db.execute(
+            text("UPDATE users SET api_key=NULL WHERE id=:uid"),
+            {"uid": current_user.user_id}
+        )
+    return {"status": "revoked"}
+
+
+# === System Settings ===
+
+@router.get("/settings")
+async def get_system_settings(
+    current_user: TokenData = Depends(require_role("admin")),
+):
+    """Get current system settings."""
+    return {
+        "llm_model": settings.LLM_MODEL,
+        "embedding_model": settings.EMBEDDING_MODEL,
+        "chunk_size": settings.CHUNK_SIZE,
+        "chunk_overlap": settings.CHUNK_OVERLAP,
+        "max_upload_size_mb": settings.MAX_UPLOAD_SIZE_MB,
+        "default_vector_weight": settings.DEFAULT_VECTOR_WEIGHT,
+        "default_bm25_weight": settings.DEFAULT_BM25_WEIGHT,
+        "available_models": settings.AVAILABLE_MODELS,
+        "embedding_dim": settings.EMBEDDING_DIM,
+        "max_iterations": settings.MAX_ITERATIONS,
+        "agent_timeout": settings.AGENT_TIMEOUT,
+    }
+
+
+@router.put("/settings")
+async def update_system_settings(
+    req: SystemSettingsUpdate,
+    current_user: TokenData = Depends(require_role("admin")),
+):
+    """Update system settings (runtime only, not persisted to .env)."""
+    updated = {}
+    if req.llm_model is not None:
+        settings.LLM_MODEL = req.llm_model
+        updated["llm_model"] = req.llm_model
+    if req.embedding_model is not None:
+        settings.EMBEDDING_MODEL = req.embedding_model
+        updated["embedding_model"] = req.embedding_model
+    if req.chunk_size is not None:
+        settings.CHUNK_SIZE = req.chunk_size
+        updated["chunk_size"] = req.chunk_size
+    if req.chunk_overlap is not None:
+        settings.CHUNK_OVERLAP = req.chunk_overlap
+        updated["chunk_overlap"] = req.chunk_overlap
+    if req.max_upload_size_mb is not None:
+        settings.MAX_UPLOAD_SIZE_MB = req.max_upload_size_mb
+        updated["max_upload_size_mb"] = req.max_upload_size_mb
+    if req.default_vector_weight is not None:
+        settings.DEFAULT_VECTOR_WEIGHT = req.default_vector_weight
+        updated["default_vector_weight"] = req.default_vector_weight
+    if req.default_bm25_weight is not None:
+        settings.DEFAULT_BM25_WEIGHT = req.default_bm25_weight
+        updated["default_bm25_weight"] = req.default_bm25_weight
+
+    return {"status": "updated", "settings": updated}
