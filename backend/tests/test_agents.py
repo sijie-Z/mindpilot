@@ -172,7 +172,7 @@ class TestGenerateAnswerExtended:
         mock_llm = AsyncMock()
         mock_llm.chat = AsyncMock(return_value="Direct answer")
 
-        result = asyncio.get_event_loop().run_until_complete(
+        result = asyncio.run(
             generate_answer("test query", [], mock_llm, enable_self_rag=False)
         )
         assert result["answer"] == "Direct answer"
@@ -186,7 +186,7 @@ class TestGenerateAnswerExtended:
         mock_llm.chat = AsyncMock(return_value="RAG answer")
 
         docs = [{"content": "doc text", "metadata": {"filename": "f.pdf", "page": 1}}]
-        result = asyncio.get_event_loop().run_until_complete(
+        result = asyncio.run(
             generate_answer("query", docs, mock_llm, enable_self_rag=False)
         )
         assert result["answer"] == "RAG answer"
@@ -207,7 +207,7 @@ class TestAnswerNodeExtended:
             "intent": "general",
             "sources": [],
         }
-        result = asyncio.get_event_loop().run_until_complete(
+        result = asyncio.run(
             answer_node(state, llm=mock_llm)
         )
         assert result["answer"] == "General answer"
@@ -225,7 +225,7 @@ class TestAnswerNodeExtended:
             "intent": "general",
             "sources": [],
         }
-        result = asyncio.get_event_loop().run_until_complete(
+        result = asyncio.run(
             answer_node(state, llm=mock_llm)
         )
         assert "错误" in result["answer"]
@@ -306,7 +306,7 @@ class TestLLMClientExtended:
         from unittest.mock import MagicMock
         client = AsyncLLMClient(api_key="test-key")
         client._clients[1] = MagicMock()
-        asyncio.get_event_loop().run_until_complete(client.close())
+        asyncio.run(client.close())
         assert len(client._clients) == 0
 
 
@@ -324,7 +324,7 @@ class TestRunAgent:
         })
         mock_get_graph.return_value = mock_graph
 
-        result = asyncio.get_event_loop().run_until_complete(
+        result = asyncio.run(
             run_agent({"query": "test"}, thread_id="t1")
         )
         assert result["answer"] == "test answer"
@@ -339,7 +339,7 @@ class TestRunAgent:
         mock_graph.invoke = MagicMock(side_effect=Exception("Graph failed"))
         mock_get_graph.return_value = mock_graph
 
-        result = asyncio.get_event_loop().run_until_complete(
+        result = asyncio.run(
             run_agent({"query": "test"})
         )
         assert result["status"] == "error"

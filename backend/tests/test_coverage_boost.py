@@ -131,7 +131,7 @@ class TestContextEngineExtended:
             ContextMessage(role="assistant", content="Python is a programming language"),
         ]
 
-        result = asyncio.get_event_loop().run_until_complete(strategy.compress(messages))
+        result = asyncio.run(strategy.compress(messages))
         assert "对话摘要" in result
         mock_llm.chat.assert_called_once()
 
@@ -149,7 +149,7 @@ class TestContextEngineExtended:
             ContextMessage(role="assistant", content="Response"),
         ]
 
-        result = asyncio.get_event_loop().run_until_complete(strategy.compress(messages))
+        result = asyncio.run(strategy.compress(messages))
         # Should fall back to truncation
         assert "已压缩" in result
 
@@ -165,7 +165,7 @@ class TestContextEngineExtended:
             ContextMessage(role="assistant", content="Response"),
         ]
 
-        result = asyncio.get_event_loop().run_until_complete(strategy.compress(messages))
+        result = asyncio.run(strategy.compress(messages))
         assert "已压缩" in result
 
     def test_truncation_strategy_short_messages(self):
@@ -173,7 +173,7 @@ class TestContextEngineExtended:
         from app.core.context_engine import TruncationStrategy, ContextMessage
         strategy = TruncationStrategy(head=2, tail=2)
         messages = [ContextMessage(role="user", content="Hi")]
-        result = asyncio.get_event_loop().run_until_complete(strategy.compress(messages))
+        result = asyncio.run(strategy.compress(messages))
         assert result == ""
 
     def test_compress_with_existing_summary(self):
@@ -186,7 +186,7 @@ class TestContextEngineExtended:
         for i in range(10):
             engine.add_message("user", f"Message {i} with enough content")
 
-        result = asyncio.get_event_loop().run_until_complete(engine.compress())
+        result = asyncio.run(engine.compress())
         assert "Previous summary" in engine._compressed_summary or result != ""
 
     def test_build_messages_with_extra_context(self):
@@ -230,7 +230,7 @@ class TestContextEngineExtended:
         engine = ContextEngine(strategy="truncate")
         engine.on_session_start("test")
         engine.add_message("user", "Hello")
-        result = asyncio.get_event_loop().run_until_complete(engine.compress())
+        result = asyncio.run(engine.compress())
         assert result == ""
 
 
@@ -374,7 +374,7 @@ class TestSkillRegistryExtended:
         from app.skills.registry import SkillRegistry
         registry = SkillRegistry()
         registry.register(_make_skill("success_skill"))
-        result = asyncio.get_event_loop().run_until_complete(
+        result = asyncio.run(
             registry.execute("success_skill", "test query")
         )
         assert result.success is True
@@ -389,7 +389,7 @@ class TestSkillRegistryExtended:
         from app.skills.base import SkillResult
         registry = SkillRegistry()
         registry.register(_make_skill("fail_skill", execute_fn=lambda q, c: SkillResult(success=False, error="broke")))
-        result = asyncio.get_event_loop().run_until_complete(
+        result = asyncio.run(
             registry.execute("fail_skill", "test")
         )
         assert result.success is False
@@ -405,7 +405,7 @@ class TestSkillRegistryExtended:
             raise ValueError("boom")
 
         registry.register(_make_skill("explode", execute_fn=exploding))
-        result = asyncio.get_event_loop().run_until_complete(
+        result = asyncio.run(
             registry.execute("explode", "test")
         )
         assert result.success is False
@@ -416,7 +416,7 @@ class TestSkillRegistryExtended:
     def test_execute_unknown_skill(self):
         from app.skills.registry import SkillRegistry
         registry = SkillRegistry()
-        result = asyncio.get_event_loop().run_until_complete(
+        result = asyncio.run(
             registry.execute("nonexistent", "test")
         )
         assert result.success is False
@@ -525,7 +525,7 @@ class TestTruncationStrategyEdgeCases:
         from app.core.context_engine import TruncationStrategy, ContextMessage
         strategy = TruncationStrategy(head=2, tail=2)
         messages = [ContextMessage(role="user", content=f"msg{i}") for i in range(4)]
-        result = asyncio.get_event_loop().run_until_complete(strategy.compress(messages))
+        result = asyncio.run(strategy.compress(messages))
         assert result == ""
 
     def test_one_over_boundary(self):
@@ -533,7 +533,7 @@ class TestTruncationStrategyEdgeCases:
         from app.core.context_engine import TruncationStrategy, ContextMessage
         strategy = TruncationStrategy(head=1, tail=1)
         messages = [ContextMessage(role="user", content=f"msg{i}") for i in range(3)]
-        result = asyncio.get_event_loop().run_until_complete(strategy.compress(messages))
+        result = asyncio.run(strategy.compress(messages))
         assert "已压缩" in result
 
 

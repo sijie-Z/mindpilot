@@ -199,7 +199,7 @@ class TestContextEngine:
         engine.on_session_start("test")
         for i in range(10):
             engine.add_message("user", f"Message {i}")
-        asyncio.get_event_loop().run_until_complete(engine.compress())
+        asyncio.run(engine.compress())
         # Should keep head + tail
         assert len(engine.messages) < 10
 
@@ -229,7 +229,7 @@ class TestMemoryManager:
         import asyncio
         from app.core.memory_manager import MemoryManager
         manager = MemoryManager()
-        ctx = asyncio.get_event_loop().run_until_complete(
+        ctx = asyncio.run(
             manager.prefetch_all("session-1", "user-1", "test query")
         )
         assert ctx.session_history == []
@@ -286,7 +286,7 @@ class TestCodeSkill:
     def test_basic_calculation(self):
         import asyncio
         from app.skills.code_skill import code_skill
-        result = asyncio.get_event_loop().run_until_complete(
+        result = asyncio.run(
             code_skill.execute("2 + 2")
         )
         assert result.success is True
@@ -295,7 +295,7 @@ class TestCodeSkill:
     def test_math_functions(self):
         import asyncio
         from app.skills.code_skill import code_skill
-        result = asyncio.get_event_loop().run_until_complete(
+        result = asyncio.run(
             code_skill.execute("math.sqrt(16)")
         )
         assert result.success is True
@@ -304,7 +304,7 @@ class TestCodeSkill:
     def test_blocks_import(self):
         import asyncio
         from app.skills.code_skill import code_skill
-        result = asyncio.get_event_loop().run_until_complete(
+        result = asyncio.run(
             code_skill.execute("import os")
         )
         assert result.success is False
@@ -312,7 +312,7 @@ class TestCodeSkill:
     def test_blocks_dunder(self):
         import asyncio
         from app.skills.code_skill import code_skill
-        result = asyncio.get_event_loop().run_until_complete(
+        result = asyncio.run(
             code_skill.execute("__builtins__")
         )
         assert result.success is False
@@ -322,7 +322,7 @@ class TestAnalysisSkill:
     def test_analyze_numbers(self):
         import asyncio
         from app.skills.analysis_skill import analysis_skill
-        result = asyncio.get_event_loop().run_until_complete(
+        result = asyncio.run(
             analysis_skill.execute("分析这些数据: 10, 20, 30, 40, 50")
         )
         assert result.success is True
@@ -332,7 +332,7 @@ class TestAnalysisSkill:
         import asyncio
         from app.skills.analysis_skill import analysis_skill
         csv_data = "name,age,score\nAlice,25,90\nBob,30,85\nCharlie,35,95"
-        result = asyncio.get_event_loop().run_until_complete(
+        result = asyncio.run(
             analysis_skill.execute("分析数据", {"data": csv_data, "data_format": "csv"})
         )
         assert result.success is True
@@ -424,7 +424,7 @@ class TestSearchSkill:
     def test_empty_query(self):
         import asyncio
         from app.skills.search_skill import search_skill
-        result = asyncio.get_event_loop().run_until_complete(
+        result = asyncio.run(
             search_skill.execute("")
         )
         assert result.success is False
@@ -433,7 +433,7 @@ class TestSearchSkill:
     def test_whitespace_query(self):
         import asyncio
         from app.skills.search_skill import search_skill
-        result = asyncio.get_event_loop().run_until_complete(
+        result = asyncio.run(
             search_skill.execute("   ")
         )
         assert result.success is False
@@ -445,7 +445,7 @@ class TestImageSkill:
     def test_no_image_provided(self):
         import asyncio
         from app.skills.image_skill import image_skill
-        result = asyncio.get_event_loop().run_until_complete(
+        result = asyncio.run(
             image_skill.execute("describe this image")
         )
         assert result.success is False
@@ -454,7 +454,7 @@ class TestImageSkill:
     def test_no_image_in_context(self):
         import asyncio
         from app.skills.image_skill import image_skill
-        result = asyncio.get_event_loop().run_until_complete(
+        result = asyncio.run(
             image_skill.execute("describe", context={})
         )
         assert result.success is False

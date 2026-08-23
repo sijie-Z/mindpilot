@@ -26,7 +26,7 @@ class TestMemoryManagerExtended:
         mock_repo.search_messages = AsyncMock(return_value=[])
 
         manager = MemoryManager(session_repo=mock_repo)
-        ctx = asyncio.get_event_loop().run_until_complete(
+        ctx = asyncio.run(
             manager.prefetch_all("session-1", "user-1", "test query")
         )
         assert len(ctx.session_history) == 2
@@ -43,7 +43,7 @@ class TestMemoryManagerExtended:
         ])
 
         manager = MemoryManager(session_repo=mock_repo)
-        ctx = asyncio.get_event_loop().run_until_complete(
+        ctx = asyncio.run(
             manager.prefetch_all("session-1", "user-1", "Python")
         )
         assert len(ctx.relevant_memories) == 1
@@ -61,7 +61,7 @@ class TestMemoryManagerExtended:
         ])
 
         manager = MemoryManager(session_repo=mock_repo)
-        ctx = asyncio.get_event_loop().run_until_complete(
+        ctx = asyncio.run(
             manager.prefetch_all("session-1", "user-1", "test")
         )
         assert len(ctx.relevant_memories) == 1
@@ -76,7 +76,7 @@ class TestMemoryManagerExtended:
         mock_repo.search_messages = AsyncMock(side_effect=Exception("DB error"))
 
         manager = MemoryManager(session_repo=mock_repo)
-        ctx = asyncio.get_event_loop().run_until_complete(
+        ctx = asyncio.run(
             manager.prefetch_all("session-1", "user-1", "test")
         )
         assert ctx.session_history == []
@@ -86,7 +86,7 @@ class TestMemoryManagerExtended:
         from app.core.memory_manager import MemoryManager
 
         manager = MemoryManager()
-        asyncio.get_event_loop().run_until_complete(
+        asyncio.run(
             manager.prefetch_all("session-1")
         )
         assert "session-1" in manager._cache
@@ -99,7 +99,7 @@ class TestMemoryManagerExtended:
         manager._cache["session-1"] = MemoryContext(
             session_history=[{"role": "user", "content": "hello"}]
         )
-        asyncio.get_event_loop().run_until_complete(
+        asyncio.run(
             manager.sync_all("session-1", response="hi there")
         )
         assert len(manager._cache["session-1"].session_history) == 2
@@ -110,7 +110,7 @@ class TestMemoryManagerExtended:
         from app.core.memory_manager import MemoryManager
         manager = MemoryManager()
         # Should not raise
-        asyncio.get_event_loop().run_until_complete(
+        asyncio.run(
             manager.sync_all("nonexistent", response="test")
         )
 
@@ -123,7 +123,7 @@ class TestMemoryManagerExtended:
         manager = MemoryManager(llm=mock_llm)
 
         messages = [{"role": "user", "content": f"msg{i}"} for i in range(5)]
-        result = asyncio.get_event_loop().run_until_complete(
+        result = asyncio.run(
             manager._compress_history(messages)
         )
         assert result == "Summary of conversation"
@@ -137,7 +137,7 @@ class TestMemoryManagerExtended:
         manager = MemoryManager(llm=mock_llm)
 
         messages = [{"role": "user", "content": f"msg{i}"} for i in range(5)]
-        result = asyncio.get_event_loop().run_until_complete(
+        result = asyncio.run(
             manager._compress_history(messages)
         )
         assert "已压缩" in result
@@ -146,7 +146,7 @@ class TestMemoryManagerExtended:
         """_compress_history returns empty without LLM."""
         from app.core.memory_manager import MemoryManager
         manager = MemoryManager(llm=None)
-        result = asyncio.get_event_loop().run_until_complete(
+        result = asyncio.run(
             manager._compress_history([{"role": "user", "content": "test"}])
         )
         assert result == ""
@@ -207,7 +207,7 @@ class TestCuratorExtended:
 
         curator = Curator(vector_store=None, session_repo=None, stale_days=30)
         with patch("app.storage.database.get_db_session", return_value=mock_ctx):
-            result = asyncio.get_event_loop().run_until_complete(
+            result = asyncio.run(
                 curator.run_maintenance()
             )
         assert result.success is True
@@ -228,7 +228,7 @@ class TestCuratorExtended:
         mock_vs = AsyncMock()
         curator = Curator(vector_store=mock_vs, stale_days=30)
         with patch("app.storage.database.get_db_session", return_value=mock_ctx):
-            result = asyncio.get_event_loop().run_until_complete(
+            result = asyncio.run(
                 curator.run_maintenance()
             )
         assert result.success is True
@@ -245,8 +245,8 @@ class TestCuratorExtended:
 
         curator = Curator()
         with patch("app.storage.database.get_db_session", return_value=mock_ctx):
-            asyncio.get_event_loop().run_until_complete(curator.run_maintenance())
-            asyncio.get_event_loop().run_until_complete(curator.run_maintenance())
+            asyncio.run(curator.run_maintenance())
+            asyncio.run(curator.run_maintenance())
         assert curator._run_count == 2
 
     def test_get_stats(self):
@@ -294,7 +294,7 @@ class TestCuratorExtended:
         from app.core.curator import Curator
 
         curator = Curator(vector_store=None)
-        fixes = asyncio.get_event_loop().run_until_complete(
+        fixes = asyncio.run(
             curator._check_consistency()
         )
         assert fixes == 0
@@ -370,7 +370,7 @@ class TestAuthExtended:
         """get_optional_user returns None without bearer."""
         from app.auth import get_optional_user
 
-        result = asyncio.get_event_loop().run_until_complete(
+        result = asyncio.run(
             get_optional_user(bearer=None)
         )
         assert result is None
@@ -381,7 +381,7 @@ class TestAuthExtended:
         from fastapi.security import HTTPAuthorizationCredentials
 
         creds = HTTPAuthorizationCredentials(scheme="Bearer", credentials="bad.token")
-        result = asyncio.get_event_loop().run_until_complete(
+        result = asyncio.run(
             get_optional_user(bearer=creds)
         )
         assert result is None
@@ -393,7 +393,7 @@ class TestAuthExtended:
 
         token = auth_handler.create_access_token({"sub": "u1", "username": "test"})
         creds = HTTPAuthorizationCredentials(scheme="Bearer", credentials=token)
-        result = asyncio.get_event_loop().run_until_complete(
+        result = asyncio.run(
             get_optional_user(bearer=creds)
         )
         assert result is not None

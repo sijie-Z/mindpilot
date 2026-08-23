@@ -465,7 +465,7 @@ class TestSearchSkillExtended:
         import asyncio
         from app.skills.search_skill import SearchSkill
         skill = SearchSkill()
-        result = asyncio.get_event_loop().run_until_complete(skill.execute(""))
+        result = asyncio.run(skill.execute(""))
         assert result.success is False
         assert "不能为空" in result.error
 
@@ -474,5 +474,5 @@ class TestSearchSkillExtended:
         import asyncio
         from app.skills.search_skill import SearchSkill
         skill = SearchSkill()
-        result = asyncio.get_event_loop().run_until_complete(skill.execute("   "))
+        result = asyncio.run(skill.execute("   "))
         assert result.success is False
