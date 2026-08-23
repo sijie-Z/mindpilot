@@ -11,8 +11,6 @@ from __future__ import annotations
 import ast
 import math
 import re
-import signal
-import time
 from typing import Any
 
 from app.skills.base import BaseSkill, SkillResult

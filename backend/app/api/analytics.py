@@ -4,9 +4,6 @@ RAG Analytics API.
 Provides detailed analytics for the RAG quality dashboard,
 including trend data, distribution analysis, and quality metrics.
 """
-from datetime import UTC, datetime
-from typing import Any
-
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import text
 

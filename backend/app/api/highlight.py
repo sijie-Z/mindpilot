@@ -7,7 +7,7 @@ enabling precise highlighting of matching content.
 import re
 from typing import Any
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter
 from pydantic import BaseModel
 
 from app.core.logger import get_logger

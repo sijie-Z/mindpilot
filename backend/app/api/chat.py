@@ -4,10 +4,12 @@ Uses the LangGraph agent graph with real conditional routing.
 """
 import json
 import uuid
+from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
+from sqlalchemy import text
 
 from app.agents.answer_agent import answer_node, generate_answer_stream
 from app.agents.eval_agent import eval_node
@@ -54,7 +56,6 @@ async def _update_session_title(session_id: str, query: str, llm: AsyncLLMClient
     title = await _generate_session_title(query, llm)
     if title:
         try:
-            from sqlalchemy import text
             async with get_db_session() as db:
                 await db.execute(
                     text("UPDATE sessions SET title = :title WHERE id = :sid"),
@@ -470,7 +471,7 @@ async def get_shared_session(share_id: str):
 @router.get("/sessions/{session_id}/export")
 async def export_session(
     session_id: str,
-    format: str = Query("markdown", regex="^(markdown|json)$"),
+    format: str = Query("markdown", pattern="^(markdown|json)$"),
     current_user: TokenData | None = Depends(get_optional_user),
 ):
     """
@@ -511,13 +512,13 @@ async def export_session(
         created_at = msg.get("created_at", "")
 
         if role == "user":
-            lines.append(f"## 用户")
+            lines.append("## 用户")
             lines.append(f"*{created_at}*")
             lines.append("")
             lines.append(content)
             lines.append("")
         elif role == "assistant":
-            lines.append(f"## 助手")
+            lines.append("## 助手")
             lines.append(f"*{created_at}*")
             lines.append("")
             lines.append(content)

@@ -19,7 +19,7 @@ from __future__ import annotations
 import re
 import base64
 from dataclasses import dataclass
-from enum import Enum, auto
+from enum import Enum
 from typing import Any
 
 from app.core.logger import get_logger

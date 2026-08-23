@@ -6,7 +6,7 @@ exploring different retrieval strategies or conversation paths.
 """
 import json
 import uuid
-from datetime import UTC, datetime
+from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel

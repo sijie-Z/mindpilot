@@ -5,7 +5,7 @@ Supports image upload, OCR, vision understanding, and image description.
 import base64
 import os
 import uuid
-from datetime import UTC, datetime
+from datetime import datetime
 
 import aiofiles
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
@@ -225,7 +225,7 @@ async def ocr_by_id(
             blocks=blocks[:50],
         )
 
-    except Exception as e:
+    except Exception:
         raise HTTPException(500, "OCR processing failed")
 
 
